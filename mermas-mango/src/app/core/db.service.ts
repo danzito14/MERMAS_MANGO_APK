@@ -102,6 +102,8 @@ export class DbService {
                     lote: row.lote,
                     linea_prod: row.linea_prod,
                     fecha_hora: row.fecha_hora,
+                    id_usuario: row.id_usuario ?? null,
+                    registrado_por: row.registrado_por ?? null,
                   } as LocalRegistro);
                 });
               };

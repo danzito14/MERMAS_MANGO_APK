@@ -130,6 +130,7 @@ const server = http.createServer((req, res) => {
           id_registro: ++seq, cant_kg: fmt(n), tipo_merma: b.tipo_merma,
           lote: b.lote, linea_prod: b.linea_prod,
           fecha_hora: b.fecha_hora || new Date().toISOString().slice(0, 19),
+          id_usuario: (users.get(who.username) || {}).id_usuario, registrado_por: who.username,
         };
         registros.push(rec);
         return send(res, 201, rec);

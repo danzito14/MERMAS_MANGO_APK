@@ -1,34 +1,18 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
-import { ConfigService } from '../core/config.service';
+import { NetworkService } from '../core/network.service';
 import { ToastService } from '../core/toast.service';
 import { formatFecha } from '../core/util';
 
 @Component({
   selector: 'app-ajustes',
   standalone: true,
-  imports: [FormsModule],
   template: `
     <div class="page-head">
       <div>
         <h2 class="page-title">Ajustes</h2>
-        <p class="page-sub">Configura el servidor y los datos sin conexion.</p>
+        <p class="page-sub">Datos guardados en el dispositivo.</p>
       </div>
-    </div>
-
-    <div class="card form">
-      <h3 class="card__title"><i class="fa-solid fa-server" aria-hidden="true"></i> Servidor (API)</h3>
-      <div class="field">
-        <label for="a_api">URL DEL SERVIDOR</label>
-        <input id="a_api" type="url" name="api" [(ngModel)]="apiUrl" placeholder="https://mermasmango.slagricola.cloud" autocomplete="off" />
-        <small class="hint">Direccion donde corre la API (por defecto https://mermasmango.slagricola.cloud). Sin barra final ni ruta.</small>
-      </div>
-      <div class="form__actions">
-        <button class="btn btn--primary" type="button" (click)="guardar()"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Guardar</button>
-        <button class="btn btn--ghost" type="button" (click)="probar()"><i class="fa-solid fa-plug" aria-hidden="true"></i> Probar conexion</button>
-      </div>
-      @if (estado()) { <div class="conn-state" [class.ok]="estadoOk()" [class.fail]="estadoOk() === false" [innerHTML]="estado()"></div> }
     </div>
 
     <div class="card form">
@@ -54,45 +38,21 @@ import { formatFecha } from '../core/util';
   `,
 })
 export class AjustesComponent implements OnInit {
-  private cfg = inject(ConfigService);
   private api = inject(ApiService);
+  private net = inject(NetworkService);
   private toast = inject(ToastService);
 
-  apiUrl = '';
-  estado = signal('');
-  estadoOk = signal<boolean | null>(null);
   offlineInfo = signal('Los registros se guardan en el dispositivo para consultarlos sin internet.');
   confirmVaciar = signal(false);
 
-  ngOnInit() {
-    this.apiUrl = this.cfg.apiBase;
-    this.refreshInfo();
-  }
-
-  guardar() {
-    this.cfg.setApiBase(this.apiUrl.trim());
-    this.apiUrl = this.cfg.apiBase;
-    this.toast.show('Servidor guardado', 'ok');
-    this.sincronizar();
-  }
-
-  async probar() {
-    this.cfg.setApiBase(this.apiUrl.trim());
-    this.estado.set('Probando...');
-    this.estadoOk.set(null);
-    const ok = await this.api.ping();
-    this.estadoOk.set(ok);
-    this.estado.set(ok
-      ? '<i class="fa-solid fa-circle-check"></i> Conexion correcta con el servidor.'
-      : '<i class="fa-solid fa-circle-xmark"></i> No se pudo conectar. Verifica la URL y que el servidor este encendido.');
-  }
+  ngOnInit() { this.refreshInfo(); }
 
   async sincronizar() {
-    if (!navigator.onLine) { this.toast.show('Sin conexion: se sincronizara al reconectar', 'info'); return; }
+    if (!this.net.online()) { this.toast.show('Sin conexion: se sincronizara al reconectar', 'info'); return; }
     this.toast.show('Sincronizando...', 'info');
     const r = await this.api.refresh();
     await this.api.updatePending();
-    this.toast.show(r.offline ? 'No se pudo sincronizar. Revisa el servidor.' : 'Sincronizado', r.offline ? 'error' : 'ok');
+    this.toast.show(r.offline ? 'No se pudo sincronizar. Revisa la conexion.' : 'Sincronizado', r.offline ? 'error' : 'ok');
     this.refreshInfo();
   }
 
@@ -101,7 +61,7 @@ export class AjustesComponent implements OnInit {
     await this.api.clearAll();
     this.toast.show('Cache local vaciada', 'ok');
     this.refreshInfo();
-    if (navigator.onLine) this.sincronizar();
+    if (this.net.online()) this.sincronizar();
   }
 
   private async refreshInfo() {

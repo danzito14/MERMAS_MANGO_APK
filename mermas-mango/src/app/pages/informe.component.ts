@@ -1,6 +1,8 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
+import { ExportService } from '../core/export.service';
+import { ToastService } from '../core/toast.service';
 import { InformeLote } from '../core/models';
 
 @Component({
@@ -33,7 +35,12 @@ import { InformeLote } from '../core/models';
           <div class="card informe-card">
             <div class="informe__head">
               <span class="informe__lote"><i class="fa-solid fa-box" aria-hidden="true"></i> {{ r.lote }}</span>
-              <span class="badge badge--lote">{{ r.num_registros }} {{ r.num_registros === 1 ? 'registro' : 'registros' }}</span>
+              <div class="informe__actions">
+                <span class="badge badge--lote">{{ r.num_registros }} {{ r.num_registros === 1 ? 'registro' : 'registros' }}</span>
+                <button class="btn btn--ghost btn--sm" type="button" (click)="descargar(r)" [disabled]="descargando() === r.lote">
+                  <i class="fa-solid fa-download" aria-hidden="true"></i> {{ descargando() === r.lote ? 'Generando...' : 'Descargar' }}
+                </button>
+              </div>
             </div>
             <div class="informe__grid">
               <div class="informe__cell"><div class="k">APROVECHABLE</div><div class="v">{{ r.total_aprovechable }} kg</div></div>
@@ -48,9 +55,13 @@ import { InformeLote } from '../core/models';
 })
 export class InformeComponent implements OnInit {
   private api = inject(ApiService);
+  private exporter = inject(ExportService);
+  private toast = inject(ToastService);
+
   iLote = '';
   items = signal<InformeLote[]>([]);
   loading = signal(true);
+  descargando = signal<string | null>(null);
 
   ngOnInit() { this.cargar(); }
 
@@ -63,6 +74,19 @@ export class InformeComponent implements OnInit {
       this.items.set([]);
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  async descargar(r: InformeLote) {
+    this.descargando.set(r.lote);
+    try {
+      await this.exporter.informeLoteCsv(r);
+    } catch (e: any) {
+      // El usuario puede cancelar el menu compartir en el APK; eso no es un error real.
+      const msg = String(e?.message || e || '');
+      if (!/cancel/i.test(msg)) this.toast.show('No se pudo descargar el informe', 'error');
+    } finally {
+      this.descargando.set(null);
     }
   }
 }

@@ -10,7 +10,8 @@
     "apk:init": "ng build && npx cap add android",
     "apk:sync": "ng build && npx cap sync android",
     "apk:open": "npx cap open android",
-    "mock": "node scripts/mock-api.mjs"
+    "mock": "node scripts/mock-api.mjs",
+    "icons": "node scripts/gen-icons.mjs"
   },
   "prettier": {
     "printWidth": 100,
@@ -36,6 +37,9 @@
     "@capacitor/android": "^8.4.2",
     "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/share": "^8.0.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.15.0"
@@ -44,6 +48,7 @@
     "@angular/build": "^20.3.32",
     "@angular/cli": "^20.3.32",
     "@angular/compiler-cli": "^20.3.0",
+    "@capacitor/assets": "^3.0.5",
     "@types/jasmine": "~5.1.0",
     "jasmine-core": "~5.9.0",
     "karma": "~6.4.0",
@@ -51,6 +56,7 @@
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.1.0",
+    "sharp": "^0.35.3",
     "typescript": "~5.9.2"
   }
 }

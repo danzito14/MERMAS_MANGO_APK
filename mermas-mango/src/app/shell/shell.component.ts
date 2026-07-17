@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { ApiService } from '../core/api.service';
@@ -68,7 +68,7 @@ import { ToastService } from '../core/toast.service';
     </main>
   `,
 })
-export class ShellComponent implements OnInit, OnDestroy {
+export class ShellComponent implements OnInit {
   auth = inject(AuthService);
   net = inject(NetworkService);
   api = inject(ApiService);
@@ -76,30 +76,34 @@ export class ShellComponent implements OnInit, OnDestroy {
   private router = inject(Router);
 
   menuOpen = signal(false);
+  private prevOnline: boolean;
+
+  constructor() {
+    this.prevOnline = this.net.online();
+    // Reacciona a los cambios de conexion: al reconectar, sube los pendientes solo.
+    effect(() => {
+      const on = this.net.online();
+      if (on && this.prevOnline === false) {
+        this.toast.show('Conexion restablecida', 'ok');
+        this.api.refresh().then(() => this.api.updatePending());
+        this.auth.refreshMe().catch(() => {});
+      } else if (!on && this.prevOnline === true) {
+        this.toast.show('Trabajando sin conexion', 'info');
+      }
+      this.prevOnline = on;
+    });
+  }
 
   ngOnInit() {
     this.api.updatePending();
     this.api.refresh().then(() => this.api.updatePending());
-    if (navigator.onLine) this.auth.refreshMe().catch(() => { /* el interceptor maneja 401 */ });
-    window.addEventListener('online', this.onOnline);
-    window.addEventListener('offline', this.onOffline);
+    if (this.net.online()) this.auth.refreshMe().catch(() => { /* el interceptor maneja 401 */ });
   }
-  ngOnDestroy() {
-    window.removeEventListener('online', this.onOnline);
-    window.removeEventListener('offline', this.onOffline);
-  }
-
-  private onOnline = () => {
-    this.toast.show('Conexion restablecida', 'ok');
-    this.api.refresh().then(() => this.api.updatePending());
-    this.auth.refreshMe().catch(() => {});
-  };
-  private onOffline = () => { this.toast.show('Trabajando sin conexion', 'info'); };
 
   toggleMenu(v?: boolean) { this.menuOpen.set(v ?? !this.menuOpen()); }
 
   sync() {
-    if (!navigator.onLine) { this.toast.show('Sin conexion: se sincronizara al reconectar', 'info'); return; }
+    if (!this.net.online()) { this.toast.show('Sin conexion: se sincronizara al reconectar', 'info'); return; }
     this.toast.show('Sincronizando...', 'info');
     this.api.refresh().then((r) => {
       this.api.updatePending();

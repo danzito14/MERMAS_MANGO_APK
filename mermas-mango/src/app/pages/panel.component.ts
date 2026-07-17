@@ -83,6 +83,7 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
               <span><i class="fa-solid fa-box" aria-hidden="true"></i>{{ r.lote }}</span>
               <span><i class="fa-solid fa-industry" aria-hidden="true"></i>{{ r.linea_prod }}</span>
               <span><i class="fa-solid fa-clock" aria-hidden="true"></i>{{ fecha(r.fecha_hora) }}</span>
+              @if (r.registrado_por) { <span><i class="fa-solid fa-user" aria-hidden="true"></i>{{ r.registrado_por }}</span> }
             </div>
           </div>
         </div>

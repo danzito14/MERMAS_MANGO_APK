@@ -3,6 +3,8 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { firstValueFrom } from 'rxjs';
 import { ConfigService } from './config.service';
 import { DbService } from './db.service';
+import { NetworkService } from './network.service';
+import { AuthService } from './auth.service';
 import { ApiError, InformeLote, LocalRegistro, MermaInput, OutboxEntry, RegistroMermaOut } from './models';
 
 export interface QueryParams { lote?: string; linea_prod?: string; tipo_merma?: string; skip?: number; limit?: number; }
@@ -12,11 +14,14 @@ export class ApiService {
   private http = inject(HttpClient);
   private cfg = inject(ConfigService);
   private db = inject(DbService);
+  private net = inject(NetworkService);
+  private auth = inject(AuthService);
 
   readonly pending = signal<number>(0);
 
   private base(): string { return this.cfg.apiBase; }
-  private online(): boolean { return navigator.onLine; }
+  // Usa el detector de red nativo (fiable en el APK), no navigator.onLine.
+  private online(): boolean { return this.net.online(); }
 
   // ---------- utilidades ----------
   private uuid(): string {
@@ -38,6 +43,7 @@ export class ApiService {
       _key: 'srv-' + row.id_registro, _pending: false, _op: null, _deleted: false,
       id_registro: row.id_registro, cant_kg: row.cant_kg, tipo_merma: row.tipo_merma,
       lote: row.lote, linea_prod: row.linea_prod, fecha_hora: row.fecha_hora,
+      id_usuario: row.id_usuario ?? null, registrado_por: row.registrado_por ?? null,
     };
   }
 
@@ -214,6 +220,7 @@ export class ApiService {
       _key: key, _pending: true, _op: 'create', _deleted: false, id_registro: null,
       cant_kg: this.formatKg(payload.cant_kg), tipo_merma: payload.tipo_merma, lote: payload.lote,
       linea_prod: payload.linea_prod, fecha_hora: payload.fecha_hora || this.nowISO(),
+      id_usuario: null, registrado_por: this.auth.username(),
     };
     await this.db.putRegistro(rec);
     await this.db.addOutbox({ type: 'create', key, serverId: null, payload: { ...payload, fecha_hora: rec.fecha_hora }, createdAt: this.nowISO() });

@@ -9,6 +9,8 @@ export interface RegistroMermaOut {
   lote: string;
   linea_prod: string;
   fecha_hora: string;       // ISO 8601
+  id_usuario?: number | null;
+  registrado_por?: string | null;  // username de quien registro
 }
 
 /** Registro guardado en la cache local (IndexedDB). */
@@ -23,6 +25,8 @@ export interface LocalRegistro {
   lote: string;
   linea_prod: string;
   fecha_hora: string;
+  id_usuario?: number | null;
+  registrado_por?: string | null;
 }
 
 /** Entrada de la cola de cambios pendientes de enviar. */
