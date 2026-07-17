@@ -206,7 +206,9 @@ body {
 
 /* ===== Filtros / formularios ===== */
 .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; margin-bottom: 16px; }
-.filters__actions { display: flex; gap: 8px; align-items: end; }
+/* Los botones ocupan su propia fila completa (no se aprietan en una columna del grid). */
+.filters__actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+.filters__actions .btn { flex: 0 0 auto; }
 .form { display: flex; flex-direction: column; gap: 15px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: .72rem; font-weight: 700; letter-spacing: .6px; color: var(--label); }
