@@ -5,9 +5,9 @@ import { ConfigService } from './config.service';
 import { DbService } from './db.service';
 import { NetworkService } from './network.service';
 import { AuthService } from './auth.service';
-import { ApiError, InformeLote, LocalRegistro, MermaInput, OutboxEntry, RegistroMermaOut } from './models';
+import { ApiError, InformeDia, LocalRegistro, MermaInput, OutboxEntry, RegistroMermaOut } from './models';
 
-export interface QueryParams { lote?: string; linea_prod?: string; tipo_merma?: string; skip?: number; limit?: number; }
+export interface QueryParams { lote?: string; linea_prod?: string; tipo_merma?: string; fecha?: string; desde?: string; hasta?: string; skip?: number; limit?: number; }
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -154,6 +154,9 @@ export class ApiService {
     if (params.lote) { const l = params.lote.toLowerCase(); all = all.filter((r) => (r.lote || '').toLowerCase().indexOf(l) !== -1); }
     if (params.linea_prod) { const p = params.linea_prod.toLowerCase(); all = all.filter((r) => (r.linea_prod || '').toLowerCase().indexOf(p) !== -1); }
     if (params.tipo_merma) all = all.filter((r) => r.tipo_merma === params.tipo_merma);
+    if (params.fecha) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) === params.fecha);
+    if (params.desde) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) >= params.desde!);
+    if (params.hasta) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) <= params.hasta!);
     all.sort((a, b) => this.cmp(a, b));
     const total = all.length;
     const skip = params.skip || 0;
@@ -165,34 +168,37 @@ export class ApiService {
     return (await this.db.getRegistros()).find((r) => r._key === key);
   }
 
-  // ---------- informe ----------
-  async informe(lote?: string): Promise<{ items: InformeLote[]; offline: boolean }> {
+  // ---------- informe (agrupado por dia) ----------
+  async informe(desde?: string, hasta?: string): Promise<{ items: InformeDia[]; offline: boolean }> {
     if (this.online()) {
       try {
         let params = new HttpParams();
-        if (lote) params = params.set('lote', lote);
-        const data = await this.call(firstValueFrom(this.http.get<InformeLote[]>(this.base() + '/mermas/informe', { params })));
+        if (desde) params = params.set('desde', desde);
+        if (hasta) params = params.set('hasta', hasta);
+        const data = await this.call(firstValueFrom(this.http.get<InformeDia[]>(this.base() + '/mermas/informe', { params })));
         return { items: data || [], offline: false };
       } catch (e) {
         if (!(e as ApiError).network) throw e;
       }
     }
-    return { items: await this.computeInformeLocal(lote), offline: true };
+    return { items: await this.computeInformeLocal(desde, hasta), offline: true };
   }
 
-  private async computeInformeLocal(lote?: string): Promise<InformeLote[]> {
+  private async computeInformeLocal(desde?: string, hasta?: string): Promise<InformeDia[]> {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
-    if (lote) all = all.filter((r) => r.lote === lote);
-    const map: Record<string, { lote: string; a: number; c: number; n: number }> = {};
+    if (desde) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) >= desde);
+    if (hasta) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) <= hasta);
+    const map: Record<string, { fecha: string; a: number; c: number; n: number }> = {};
     all.forEach((r) => {
-      const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0 });
+      const dia = (r.fecha_hora || '').slice(0, 10);
+      const g = map[dia] || (map[dia] = { fecha: dia, a: 0, c: 0, n: 0 });
       const kg = Number(r.cant_kg) || 0;
       if (r.tipo_merma === 'aprovechable') g.a += kg; else g.c += kg;
       g.n++;
     });
-    return Object.keys(map).sort().map((k) => {
+    return Object.keys(map).sort().reverse().map((k) => {
       const g = map[k];
-      return { lote: g.lote, total_aprovechable: g.a.toFixed(2), total_cascara_hueso: g.c.toFixed(2), total_general: (g.a + g.c).toFixed(2), num_registros: g.n };
+      return { fecha: g.fecha, total_aprovechable: g.a.toFixed(2), total_cascara_hueso: g.c.toFixed(2), total_general: (g.a + g.c).toFixed(2), num_registros: g.n };
     });
   }
 

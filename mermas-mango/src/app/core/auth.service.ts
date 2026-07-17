@@ -8,11 +8,11 @@ const TKEY = 'mm_token';
 const UKEY = 'mm_user';
 const RKEY = 'mm_role';
 
-interface Perm { write: boolean; users: boolean; }
+interface Perm { create: boolean; modify: boolean; users: boolean; }
 const PERM: Record<string, Perm> = {
-  admin: { write: true, users: true },
-  capturista: { write: true, users: false },
-  reportes: { write: false, users: false },
+  admin: { create: true, modify: true, users: true },       // crea, edita/borra, gestiona usuarios
+  capturista: { create: true, modify: false, users: false }, // solo crea
+  reportes: { create: false, modify: false, users: false },  // solo lectura
 };
 
 @Injectable({ providedIn: 'root' })
@@ -22,10 +22,11 @@ export class AuthService {
 
   readonly role = signal<Rol>(this.getRole());
   readonly username = signal<string>(this.getUser());
-  readonly canWrite = computed(() => this.perms().write);
-  readonly canUsers = computed(() => this.perms().users);
+  readonly canCreate = computed(() => this.perms().create);   // crear merma (admin, capturista)
+  readonly canModify = computed(() => this.perms().modify);   // editar/borrar merma (solo admin)
+  readonly canUsers = computed(() => this.perms().users);     // gestionar usuarios (solo admin)
 
-  private perms(): Perm { return PERM[this.role()] || { write: false, users: false }; }
+  private perms(): Perm { return PERM[this.role()] || { create: false, modify: false, users: false }; }
 
   // ---- almacenamiento ----
   getToken(): string { try { return localStorage.getItem(TKEY) || ''; } catch { return ''; } }
@@ -114,5 +115,17 @@ export class AuthService {
 
   listUsers(): Promise<UsuarioOut[]> {
     return this.call(firstValueFrom(this.http.get<UsuarioOut[]>(this.cfg.apiBase + '/auth/usuarios')));
+  }
+
+  getUserById(id: number): Promise<UsuarioOut> {
+    return this.call(firstValueFrom(this.http.get<UsuarioOut>(this.cfg.apiBase + '/auth/usuarios/' + id)));
+  }
+
+  updateUser(id: number, changes: { username?: string; password?: string; rol?: Rol; activo?: boolean }): Promise<UsuarioOut> {
+    return this.call(firstValueFrom(this.http.put<UsuarioOut>(this.cfg.apiBase + '/auth/usuarios/' + id, changes)));
+  }
+
+  deleteUser(id: number): Promise<void> {
+    return this.call(firstValueFrom(this.http.delete<void>(this.cfg.apiBase + '/auth/usuarios/' + id)));
   }
 }

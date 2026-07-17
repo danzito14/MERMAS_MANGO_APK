@@ -8,14 +8,21 @@ export const authGuard: CanActivateFn = () => {
   return auth.isAuthenticated() ? true : router.parseUrl('/login');
 };
 
-/** Solo roles con permiso de escritura (admin, capturista). */
-export const writeGuard: CanActivateFn = () => {
+/** Crear merma: admin y capturista. */
+export const createGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);
-  return auth.canWrite() ? true : router.parseUrl('/panel');
+  return auth.canCreate() ? true : router.parseUrl('/panel');
 };
 
-/** Solo admin (gestion de usuarios). */
+/** Editar/borrar merma: solo admin. */
+export const modifyGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  return auth.canModify() ? true : router.parseUrl('/registros');
+};
+
+/** Gestion de usuarios: solo admin. */
 export const adminGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);

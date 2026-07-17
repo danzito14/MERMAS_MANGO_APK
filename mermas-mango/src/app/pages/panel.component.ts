@@ -117,10 +117,11 @@ export class PanelComponent implements OnInit {
     let sumA = 0, sumC = 0, nReg = 0;
     inf.items.forEach((r) => { sumA += Number(r.total_aprovechable) || 0; sumC += Number(r.total_cascara_hueso) || 0; nReg += r.num_registros || 0; });
     const total = sumA + sumC;
+    const nLotes = new Set(items.map((r) => r.lote)).size;
     this.nReg.set(nReg);
     this.stats.set([
       { kind: 'blue', icon: 'fa-list-ul', num: String(nReg), label: 'Registros totales' },
-      { kind: 'strong', icon: 'fa-boxes-stacked', num: String(inf.items.length), label: 'Lotes' },
+      { kind: 'strong', icon: 'fa-boxes-stacked', num: String(nLotes), label: 'Lotes' },
       { kind: 'green', icon: 'fa-leaf', num: sumA.toFixed(2), label: 'Aprovechable (kg)' },
       { kind: 'amber', icon: 'fa-bone', num: sumC.toFixed(2), label: 'Cascara / Hueso (kg)' },
       { kind: 'strong', icon: 'fa-scale-balanced', num: total.toFixed(2), label: 'Total general (kg)' },

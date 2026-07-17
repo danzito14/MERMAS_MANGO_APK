@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { adminGuard, authGuard, writeGuard } from './core/guards';
+import { adminGuard, authGuard, createGuard, modifyGuard } from './core/guards';
 
 export const routes: Routes = [
   {
@@ -11,8 +11,8 @@ export const routes: Routes = [
     loadComponent: () => import('./shell/shell.component').then((m) => m.ShellComponent),
     canActivate: [authGuard],
     children: [
-      { path: 'captura', canActivate: [writeGuard], loadComponent: () => import('./pages/captura.component').then((m) => m.CapturaComponent) },
-      { path: 'captura/:key', canActivate: [writeGuard], loadComponent: () => import('./pages/captura.component').then((m) => m.CapturaComponent) },
+      { path: 'captura', canActivate: [createGuard], loadComponent: () => import('./pages/captura.component').then((m) => m.CapturaComponent) },
+      { path: 'captura/:key', canActivate: [modifyGuard], loadComponent: () => import('./pages/captura.component').then((m) => m.CapturaComponent) },
       { path: 'panel', loadComponent: () => import('./pages/panel.component').then((m) => m.PanelComponent) },
       { path: 'registros', loadComponent: () => import('./pages/registros.component').then((m) => m.RegistrosComponent) },
       { path: 'informe', loadComponent: () => import('./pages/informe.component').then((m) => m.InformeComponent) },

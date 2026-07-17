@@ -88,14 +88,37 @@ const server = http.createServer((req, res) => {
       if (who.rol !== "admin") return send(res, 403, { detail: "Solo admin" });
       return send(res, 200, Array.from(users.entries()).map(([username, v]) => ({ id_usuario: v.id_usuario, username, rol: v.rol, activo: v.activo })));
     }
+    const um = path.match(/^\/auth\/usuarios\/(\d+)$/);
+    if (um) {
+      const who = readToken(req);
+      if (!who) return send(res, 401, { detail: "No autenticado" });
+      if (who.rol !== "admin") return send(res, 403, { detail: "Solo admin" });
+      const id = +um[1];
+      let entry = null, uname = null;
+      for (const [k, v] of users.entries()) { if (v.id_usuario === id) { entry = v; uname = k; break; } }
+      if (!entry) return send(res, 404, { detail: "Usuario no encontrado" });
+      if (req.method === "GET") return send(res, 200, { id_usuario: entry.id_usuario, username: uname, rol: entry.rol, activo: entry.activo });
+      if (req.method === "PUT") {
+        let b = {}; try { b = JSON.parse(raw || "{}"); } catch {}
+        if (b.username && b.username !== uname) {
+          if (users.has(b.username)) return send(res, 400, { detail: "El usuario ya existe." });
+          users.delete(uname); uname = b.username; users.set(uname, entry);
+        }
+        if (b.password) entry.password = b.password;
+        if (b.rol && ["admin", "capturista", "reportes"].includes(b.rol)) entry.rol = b.rol;
+        if (typeof b.activo === "boolean") entry.activo = b.activo;
+        return send(res, 200, { id_usuario: entry.id_usuario, username: uname, rol: entry.rol, activo: entry.activo });
+      }
+      if (req.method === "DELETE") { users.delete(uname); return send(res, 204, null); }
+    }
 
     // ---- mermas (protegido) ----
     if (path.startsWith("/mermas")) {
       const who = readToken(req);
       if (!who) return send(res, 401, { detail: "No autenticado" });
-      const escribe = who.rol === "admin" || who.rol === "capturista";
-      const esEscritura = req.method === "POST" || req.method === "PUT" || req.method === "DELETE";
-      if (esEscritura && !escribe) return send(res, 403, { detail: "Sin permiso de escritura" });
+      // crear: admin + capturista; editar/borrar: solo admin
+      if (req.method === "POST" && !(who.rol === "admin" || who.rol === "capturista")) return send(res, 403, { detail: "Sin permiso para crear" });
+      if ((req.method === "PUT" || req.method === "DELETE") && who.rol !== "admin") return send(res, 403, { detail: "Solo admin puede editar o borrar" });
 
       if (path === "/mermas" && req.method === "GET") {
         let out = registros.slice().sort((a, b) => b.id_registro - a.id_registro);
@@ -105,21 +128,34 @@ const server = http.createServer((req, res) => {
         if (lote) out = out.filter((r) => r.lote === lote);
         if (linea) out = out.filter((r) => r.linea_prod === linea);
         if (tipo) out = out.filter((r) => r.tipo_merma === tipo);
+        const fecha = url.searchParams.get("fecha");
+        const desde = url.searchParams.get("desde");
+        const hasta = url.searchParams.get("hasta");
+        if (fecha) out = out.filter((r) => (r.fecha_hora || "").slice(0, 10) === fecha);
+        if (desde) out = out.filter((r) => (r.fecha_hora || "").slice(0, 10) >= desde);
+        if (hasta) out = out.filter((r) => (r.fecha_hora || "").slice(0, 10) <= hasta);
         const skip = +(url.searchParams.get("skip") || 0);
         const limit = +(url.searchParams.get("limit") || 100);
         return send(res, 200, out.slice(skip, skip + limit));
       }
       if (path === "/mermas/informe" && req.method === "GET") {
+        const desde = url.searchParams.get("desde");
+        const hasta = url.searchParams.get("hasta");
+        let src = registros;
+        if (desde) src = src.filter((r) => (r.fecha_hora || "").slice(0, 10) >= desde);
+        if (hasta) src = src.filter((r) => (r.fecha_hora || "").slice(0, 10) <= hasta);
         const map = {};
-        registros.forEach((r) => {
-          const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0 });
+        src.forEach((r) => {
+          const dia = (r.fecha_hora || "").slice(0, 10);
+          const g = map[dia] || (map[dia] = { fecha: dia, a: 0, c: 0, n: 0 });
           if (r.tipo_merma === "aprovechable") g.a += +r.cant_kg; else g.c += +r.cant_kg;
           g.n++;
         });
-        return send(res, 200, Object.values(map).map((g) => ({
-          lote: g.lote, total_aprovechable: fmt(g.a), total_cascara_hueso: fmt(g.c),
+        const rows = Object.values(map).map((g) => ({
+          fecha: g.fecha, total_aprovechable: fmt(g.a), total_cascara_hueso: fmt(g.c),
           total_general: fmt(g.a + g.c), num_registros: g.n,
-        })));
+        })).sort((a, b) => b.fecha.localeCompare(a.fecha));
+        return send(res, 200, rows);
       }
       if (path === "/mermas" && req.method === "POST") {
         let b = {};

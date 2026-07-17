@@ -17,9 +17,9 @@ const PAGE_SIZE = 20;
     <div class="page-head">
       <div>
         <h2 class="page-title">Registros</h2>
-        <p class="page-sub">Consulta, edita o elimina mermas.</p>
+        <p class="page-sub">Consulta y filtra las mermas.</p>
       </div>
-      @if (auth.canWrite()) {
+      @if (auth.canCreate()) {
         <a class="btn btn--primary" routerLink="/captura"><i class="fa-solid fa-plus" aria-hidden="true"></i> Nueva merma</a>
       }
     </div>
@@ -35,6 +35,8 @@ const PAGE_SIZE = 20;
           <option value="cascara_hueso">Cascara / Hueso</option>
         </select>
       </div>
+      <div class="field"><label for="f_desde">DESDE</label><input id="f_desde" type="date" name="desde" [(ngModel)]="fDesde" /></div>
+      <div class="field"><label for="f_hasta">HASTA</label><input id="f_hasta" type="date" name="hasta" [(ngModel)]="fHasta" /></div>
       <div class="filters__actions">
         <button class="btn btn--primary" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Filtrar</button>
         <button class="btn btn--ghost" type="button" (click)="limpiar()"><i class="fa-solid fa-eraser" aria-hidden="true"></i> Limpiar</button>
@@ -69,7 +71,7 @@ const PAGE_SIZE = 20;
                 @if (r.registrado_por) { <span><i class="fa-solid fa-user" aria-hidden="true"></i>{{ r.registrado_por }}</span> }
               </div>
             </div>
-            @if (auth.canWrite()) {
+            @if (auth.canModify()) {
               <div class="item__actions">
                 <a class="iconaction" [routerLink]="['/captura', r._key]" title="Editar"><i class="fa-solid fa-pen" aria-hidden="true"></i></a>
                 <button class="iconaction iconaction--danger" type="button" (click)="pedirEliminar(r._key)" title="Eliminar"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
@@ -104,7 +106,7 @@ export class RegistrosComponent implements OnInit {
   auth = inject(AuthService);
   private toast = inject(ToastService);
 
-  fLote = ''; fLinea = ''; fTipo = '';
+  fLote = ''; fLinea = ''; fTipo = ''; fDesde = ''; fHasta = '';
   all = signal<LocalRegistro[]>([]);
   page = signal(0);
   loading = signal(true);
@@ -126,14 +128,17 @@ export class RegistrosComponent implements OnInit {
 
   private async cargar(refresh: boolean) {
     if (refresh) { this.loading.set(true); await this.api.refresh(); }
-    const res = await this.api.query({ lote: this.fLote.trim(), linea_prod: this.fLinea.trim(), tipo_merma: this.fTipo, skip: 0, limit: 1000000 });
+    const res = await this.api.query({
+      lote: this.fLote.trim(), linea_prod: this.fLinea.trim(), tipo_merma: this.fTipo,
+      desde: this.fDesde || undefined, hasta: this.fHasta || undefined, skip: 0, limit: 1000000,
+    });
     if (this.page() > 0 && this.page() * PAGE_SIZE >= res.items.length) this.page.set(0);
     this.all.set(res.items);
     this.loading.set(false);
   }
 
   filtrar() { this.page.set(0); this.cargar(true); }
-  limpiar() { this.fLote = ''; this.fLinea = ''; this.fTipo = ''; this.page.set(0); this.cargar(true); }
+  limpiar() { this.fLote = ''; this.fLinea = ''; this.fTipo = ''; this.fDesde = ''; this.fHasta = ''; this.page.set(0); this.cargar(true); }
   prev() { if (this.page() > 0) this.page.update((p) => p - 1); }
   next() { if (this.page() < this.maxPage()) this.page.update((p) => p + 1); }
 

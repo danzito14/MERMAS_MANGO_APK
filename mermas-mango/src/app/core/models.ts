@@ -39,8 +39,9 @@ export interface OutboxEntry {
   createdAt: string;
 }
 
-export interface InformeLote {
-  lote: string;
+/** Fila del informe, agrupado por dia (fecha). */
+export interface InformeDia {
+  fecha: string;   // YYYY-MM-DD
   total_aprovechable: string;
   total_cascara_hueso: string;
   total_general: string;

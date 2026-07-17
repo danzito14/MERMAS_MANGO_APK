@@ -73,7 +73,7 @@ export class LoginComponent {
     this.submitting.set(true);
     try {
       await this.auth.login(u, p);
-      this.router.navigateByUrl(this.auth.canWrite() ? '/captura' : '/panel');
+      this.router.navigateByUrl(this.auth.canCreate() ? '/captura' : '/panel');
     } catch (e) {
       const err = e as ApiError;
       if (err?.network) this.error.set("Sin conexion con el servidor. Revisa la URL en 'cambiar'.");

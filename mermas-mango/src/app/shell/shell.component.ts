@@ -37,7 +37,7 @@ import { ToastService } from '../core/toast.service';
         <button class="iconbtn iconbtn--dark" type="button" (click)="toggleMenu(false)" aria-label="Cerrar menu"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
       </div>
       <nav class="sidebar__nav">
-        @if (auth.canWrite()) {
+        @if (auth.canCreate()) {
           <a class="navitem" routerLink="/captura" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i><span>Registrar merma</span></a>
         }
         <a class="navitem" routerLink="/panel" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-chart-pie" aria-hidden="true"></i><span>Panel</span></a>
