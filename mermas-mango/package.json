@@ -10,6 +10,9 @@
     "apk:init": "ng build && npx cap add android",
     "apk:sync": "ng build && npx cap sync android",
     "apk:open": "npx cap open android",
+    "cap:init": "ng build && npx cap add android",
+    "cap:sync": "ng build && npx cap sync android",
+    "cap:open": "npx cap open android",
     "mock": "node scripts/mock-api.mjs",
     "icons": "node scripts/gen-icons.mjs"
   },

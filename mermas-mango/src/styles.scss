@@ -45,7 +45,8 @@ body {
   font-size: 15px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
-  padding-top: var(--topbar-h);
+  /* Reserva la altura del header INCLUYENDO la barra de estado (edge-to-edge en Android). */
+  padding-top: calc(var(--topbar-h) + env(safe-area-inset-top));
   min-height: 100vh;
 }
 
@@ -129,7 +130,7 @@ body {
 }
 
 /* ===== Contenido ===== */
-.content { max-width: 1080px; margin: 0 auto; padding: 18px 16px 90px; }
+.content { max-width: 1080px; margin: 0 auto; padding: 18px 16px calc(40px + env(safe-area-inset-bottom)); }
 .view { animation: fade .18s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
@@ -349,7 +350,7 @@ input.is-invalid { border-color: var(--red); box-shadow: 0 0 0 3px rgba(220,53,6
 .conn-state.fail { color: var(--red); }
 
 /* ===== Toasts ===== */
-.toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(92vw, 420px); }
+.toasts { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(92vw, 420px); }
 .toast {
   display: flex; align-items: center; gap: 10px;
   background: #23302a; color: #fff; padding: 12px 15px; border-radius: 12px;
