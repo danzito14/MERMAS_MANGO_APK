@@ -2,7 +2,6 @@ import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../core/auth.service';
-import { ConfigService } from '../core/config.service';
 import { ApiError } from '../core/models';
 
 @Component({
@@ -38,32 +37,19 @@ import { ApiError } from '../core/models';
           </button>
         </form>
         <p class="auth__hint muted">Las cuentas las crea el administrador desde la app.</p>
-        <div class="auth__cfg">
-          <p class="muted"><i class="fa-solid fa-server" aria-hidden="true"></i> Servidor: <b>{{ server() }}</b>
-            <button type="button" class="link" (click)="toggleCfg()">cambiar</button></p>
-          @if (cfgOpen()) {
-            <div class="field">
-              <input type="url" name="apiUrl" [(ngModel)]="apiUrl" (change)="saveApi()" placeholder="https://mermasmango.slagricola.cloud" autocomplete="off" />
-            </div>
-          }
-        </div>
       </div>
     </div>
   `,
 })
 export class LoginComponent {
   private auth = inject(AuthService);
-  private cfg = inject(ConfigService);
   private router = inject(Router);
 
   user = '';
   pass = '';
-  apiUrl = '';
   error = signal('');
   showPass = signal(false);
-  cfgOpen = signal(false);
   submitting = signal(false);
-  server = signal(this.cfg.apiBase);
 
   async submit() {
     this.error.set('');
@@ -76,16 +62,13 @@ export class LoginComponent {
       this.router.navigateByUrl(this.auth.canCreate() ? '/captura' : '/panel');
     } catch (e) {
       const err = e as ApiError;
-      if (err?.network) this.error.set("Sin conexion con el servidor. Revisa la URL en 'cambiar'.");
+      if (err?.network) this.error.set('Sin conexion con el servidor. Revisa tu internet.');
       else if (err?.status === 401) this.error.set('Usuario o contrasena incorrectos.');
       else this.error.set(this.detalle(err) || 'No se pudo iniciar sesion. Intenta de nuevo.');
     } finally {
       this.submitting.set(false);
     }
   }
-
-  toggleCfg() { this.cfgOpen.update((v) => !v); if (this.cfgOpen()) this.apiUrl = this.cfg.apiBase; }
-  saveApi() { this.cfg.setApiBase(this.apiUrl.trim()); this.server.set(this.cfg.apiBase); }
 
   private detalle(err: ApiError): string {
     if (!err) return '';
