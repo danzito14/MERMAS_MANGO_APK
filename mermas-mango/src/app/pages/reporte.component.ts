@@ -4,7 +4,7 @@ import { ApiService } from '../core/api.service';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
 import { ReporteLote } from '../core/models';
-import { fmtKg, semanaActual } from '../core/util';
+import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
 
 @Component({
   selector: 'app-reporte',
@@ -20,10 +20,12 @@ import { fmtKg, semanaActual } from '../core/util';
     </div>
 
     <form class="filters card" (ngSubmit)="cargar()">
-      <div class="field"><label for="r_desde">DESDE</label><input id="r_desde" type="date" name="desde" [(ngModel)]="desde" /></div>
-      <div class="field"><label for="r_hasta">HASTA</label><input id="r_hasta" type="date" name="hasta" [(ngModel)]="hasta" /></div>
+      <div class="field"><label for="r_desde">DESDE (fecha y hora)</label><input id="r_desde" type="datetime-local" name="desde" [(ngModel)]="desde" /></div>
+      <div class="field"><label for="r_hasta">HASTA (fecha y hora)</label><input id="r_hasta" type="datetime-local" name="hasta" [(ngModel)]="hasta" /></div>
       <div class="filters__actions">
         <button class="btn btn--primary" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Ver</button>
+        <button class="btn btn--ghost" type="button" (click)="hoy()"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i> Hoy</button>
+        <button class="btn btn--ghost" type="button" (click)="estaSemana()"><i class="fa-solid fa-calendar-week" aria-hidden="true"></i> Esta semana</button>
         <button class="btn btn--ghost" type="button" (click)="limpiar()"><i class="fa-solid fa-eraser" aria-hidden="true"></i> Limpiar</button>
         @if (data()?.lotes?.length) {
           <button class="btn btn--ghost" type="button" (click)="descargar()" [disabled]="descargando()">
@@ -45,9 +47,9 @@ import { fmtKg, semanaActual } from '../core/util';
               <tr>
                 <th>Lote</th>
                 <th>Lineas</th>
-                <th class="num">Aprovechable (kg)</th>
-                <th class="num">No aprovechable (kg)</th>
-                <th class="num">Total rezaga (kg)</th>
+                <th class="num">Aprovechable (lb)</th>
+                <th class="num">No aprovechable (lb)</th>
+                <th class="num">Total rezaga (lb)</th>
                 <th class="num">Reg.</th>
               </tr>
             </thead>
@@ -94,17 +96,23 @@ export class ReporteComponent implements OnInit {
   descargando = signal(false);
 
   ngOnInit() {
-    // Abre con la semana actual (lunes a domingo).
-    const s = semanaActual();
+    // Abre con la semana actual (lunes 00:00 a domingo 23:59).
+    const s = semanaActualDT();
     this.desde = s.desde;
     this.hasta = s.hasta;
     this.cargar();
   }
 
+  /** El input datetime-local da "YYYY-MM-DDTHH:MM"; el backend espera segundos. */
+  private conSegundos(v: string): string | undefined {
+    if (!v) return undefined;
+    return v.length === 16 ? v + ':00' : v;
+  }
+
   async cargar() {
     this.loading.set(true);
     try {
-      const res = await this.api.reporte(this.desde || undefined, this.hasta || undefined);
+      const res = await this.api.reporte(this.conSegundos(this.desde), this.conSegundos(this.hasta));
       this.data.set(res.data);
     } catch {
       this.data.set(null);
@@ -113,6 +121,23 @@ export class ReporteComponent implements OnInit {
     }
   }
 
+  /** Usa el endpoint dedicado del backend para el reporte de hoy. */
+  async hoy() {
+    const h = hoyDT();
+    this.desde = h.desde;
+    this.hasta = h.hasta;
+    this.loading.set(true);
+    try {
+      const res = await this.api.reporteHoy();
+      this.data.set(res.data);
+    } catch {
+      this.data.set(null);
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  estaSemana() { const s = semanaActualDT(); this.desde = s.desde; this.hasta = s.hasta; this.cargar(); }
   limpiar() { this.desde = ''; this.hasta = ''; this.cargar(); }
 
   async descargar() {

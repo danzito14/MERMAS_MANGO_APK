@@ -4,9 +4,12 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { ToastService } from '../core/toast.service';
 import { ApiError, TipoMerma } from '../core/models';
-import { fmtKg } from '../core/util';
+import { numKg } from '../core/util';
 
 type Linea = 'L1' | 'L2' | 'L3' | 'L4';
+
+/** cant_kg es DECIMAL(16,6): 16 - 6 = 10 digitos enteros como maximo. */
+const MAX_ENTEROS = 10;
 
 @Component({
   selector: 'app-captura',
@@ -52,9 +55,9 @@ type Linea = 'L1' | 'L2' | 'L3' | 'L4';
       </div>
 
       <div class="field">
-        <label for="c_cant">CANTIDAD (KG) <span class="req">*</span></label>
+        <label for="c_cant">CANTIDAD (LIBRAS) <span class="req">*</span></label>
         <input id="c_cant" type="text" inputmode="decimal" [value]="cant()" (input)="onCant($event)" placeholder="0.00" autocomplete="off" [class.is-invalid]="!!err()['cant_kg']" />
-        <small class="hint">No negativos. Hasta 6 decimales.</small>
+        <small class="hint">No negativos. Hasta 9 enteros y 6 decimales.</small>
         @if (err()['cant_kg']) { <span class="error">{{ err()['cant_kg'] }}</span> }
       </div>
 
@@ -103,21 +106,22 @@ export class CapturaComponent implements OnInit {
         this.linea.set(/^L[1-4]$/.test(r.linea_prod) ? (r.linea_prod as Linea) : 'L1');
         this.tipo.set(r.tipo_merma === 'cascara_hueso' ? 'cascara_hueso' : 'aprovechable');
         this.lote.set(String(r.lote || ''));
-        this.cant.set(fmtKg(r.cant_kg));
+        this.cant.set(numKg(r.cant_kg));
       });
     }
   }
 
   onLote(v: string) { this.lote.set(v || ''); }
 
-  /** Deja escribir solo numeros: un punto decimal y maximo 6 decimales. */
+  /** Solo numeros: un punto decimal, maximo 9 enteros y 6 decimales. */
   onCant(ev: Event) {
     const el = ev.target as HTMLInputElement;
     let s = (el.value || '').replace(/,/g, '.').replace(/[^\d.]/g, '');
     const i = s.indexOf('.');
-    if (i !== -1) s = s.slice(0, i + 1) + s.slice(i + 1).replace(/\./g, '');
-    const dot = s.indexOf('.');
-    if (dot !== -1) s = s.slice(0, dot + 7); // punto + 6 decimales
+    if (i !== -1) s = s.slice(0, i + 1) + s.slice(i + 1).replace(/\./g, ''); // un solo punto
+    let [ent, dec] = s.split('.');
+    ent = (ent || '').slice(0, MAX_ENTEROS);
+    s = dec !== undefined ? ent + '.' + dec.slice(0, 6) : ent;
     if (el.value !== s) el.value = s;        // corrige el input al instante
     this.cant.set(s);
   }
@@ -132,6 +136,7 @@ export class CapturaComponent implements OnInit {
     else if (isNaN(n)) e['cant_kg'] = 'Debe ser un numero (usa punto decimal).';
     else if (n < 0) e['cant_kg'] = 'No puede ser negativa.';
     else if (!/^\d+(\.\d{1,6})?$/.test(raw)) e['cant_kg'] = 'Maximo 6 decimales.';
+    else if (raw.split('.')[0].length > MAX_ENTEROS) e['cant_kg'] = 'Maximo ' + MAX_ENTEROS + ' digitos enteros.';
 
     const lote = this.lote().trim();
     if (!lote) e['lote'] = 'El lote es obligatorio.';

@@ -5,7 +5,7 @@ import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { ToastService } from '../core/toast.service';
 import { LocalRegistro } from '../core/models';
-import { fmtKg, formatFecha, semanaActual, tipoIcon, tipoLabel } from '../core/util';
+import { fmtKg, formatFecha, numSize, semanaActual, tipoIcon, tipoLabel } from '../core/util';
 
 const PAGE_SIZE = 20;
 
@@ -45,9 +45,9 @@ const PAGE_SIZE = 20;
     </form>
 
     <div class="stats stats--mini">
-      <div class="stat stat--green"><div class="stat__body"><div class="stat__num">{{ sumAprov() }}</div><div class="stat__label">Aprovechable (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-leaf" aria-hidden="true"></i></span></div>
-      <div class="stat stat--amber"><div class="stat__body"><div class="stat__num">{{ sumCasc() }}</div><div class="stat__label">Cascara/Hueso (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-bone" aria-hidden="true"></i></span></div>
-      <div class="stat stat--strong"><div class="stat__body"><div class="stat__num">{{ sumTotal() }}</div><div class="stat__label">Total pagina (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i></span></div>
+      <div class="stat stat--green"><div class="stat__body"><div class="stat__num {{ size(sumAprov()) }}">{{ sumAprov() }}</div><div class="stat__label">Aprovechable (lb)</div></div><span class="stat__icon"><i class="fa-solid fa-leaf" aria-hidden="true"></i></span></div>
+      <div class="stat stat--amber"><div class="stat__body"><div class="stat__num {{ size(sumCasc()) }}">{{ sumCasc() }}</div><div class="stat__label">Cascara/Hueso (lb)</div></div><span class="stat__icon"><i class="fa-solid fa-bone" aria-hidden="true"></i></span></div>
+      <div class="stat stat--strong"><div class="stat__body"><div class="stat__num {{ size(sumTotal()) }}">{{ sumTotal() }}</div><div class="stat__label">Total pagina (lb)</div></div><span class="stat__icon"><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i></span></div>
     </div>
 
     <div class="list">
@@ -61,7 +61,7 @@ const PAGE_SIZE = 20;
             <span class="item__icon"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i></span>
             <div class="item__main">
               <div class="item__top">
-                <span class="item__kg">{{ kg(r.cant_kg) }} kg</span>
+                <span class="item__kg {{ size(kg(r.cant_kg)) }}">{{ kg(r.cant_kg) }} lb</span>
                 <span class="badge" [class.badge--casc]="r.tipo_merma === 'cascara_hueso'"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i> {{ label(r.tipo_merma) }}</span>
                 @if (r._pending) { <span class="badge badge--pending"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> Pendiente</span> }
               </div>
@@ -113,16 +113,17 @@ export class RegistrosComponent implements OnInit {
   loading = signal(true);
   confirmKey = signal<string | null>(null);
 
-  fecha = formatFecha; label = tipoLabel; icon = tipoIcon; kg = fmtKg;
+  fecha = formatFecha; label = tipoLabel; icon = tipoIcon; kg = fmtKg; size = numSize;
 
   maxPage = computed(() => Math.max(0, Math.ceil(this.all().length / PAGE_SIZE) - 1));
   pageItems = computed(() => { const s = this.page() * PAGE_SIZE; return this.all().slice(s, s + PAGE_SIZE); });
-  sumAprov = computed(() => this.suma('aprovechable'));
-  sumCasc = computed(() => this.suma('cascara_hueso'));
-  sumTotal = computed(() => fmtKg(Number(this.sumAprov()) + Number(this.sumCasc())));
+  sumAprov = computed(() => fmtKg(this.sumaNum('aprovechable')));
+  sumCasc = computed(() => fmtKg(this.sumaNum('cascara_hueso')));
+  sumTotal = computed(() => fmtKg(this.sumaNum('aprovechable') + this.sumaNum('cascara_hueso')));
 
-  private suma(tipo: string): string {
-    return fmtKg(this.pageItems().filter((r) => r.tipo_merma === tipo).reduce((a, r) => a + (Number(r.cant_kg) || 0), 0));
+  /** Suma cruda (numero), para no parsear textos ya formateados con comas. */
+  private sumaNum(tipo: string): number {
+    return this.pageItems().filter((r) => r.tipo_merma === tipo).reduce((a, r) => a + (Number(r.cant_kg) || 0), 0);
   }
 
   ngOnInit() {

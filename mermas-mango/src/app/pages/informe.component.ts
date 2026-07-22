@@ -4,7 +4,7 @@ import { ApiService } from '../core/api.service';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
 import { InformeDia } from '../core/models';
-import { fmtKg, semanaActual } from '../core/util';
+import { fmtKg, hoyYmd, semanaActual } from '../core/util';
 
 @Component({
   selector: 'app-informe',
@@ -24,6 +24,8 @@ import { fmtKg, semanaActual } from '../core/util';
       <div class="field"><label for="i_hasta">HASTA</label><input id="i_hasta" type="date" name="hasta" [(ngModel)]="iHasta" /></div>
       <div class="filters__actions">
         <button class="btn btn--primary" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Ver</button>
+        <button class="btn btn--ghost" type="button" (click)="hoy()"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i> Hoy</button>
+        <button class="btn btn--ghost" type="button" (click)="estaSemana()"><i class="fa-solid fa-calendar-week" aria-hidden="true"></i> Esta semana</button>
         <button class="btn btn--ghost" type="button" (click)="limpiar()"><i class="fa-solid fa-eraser" aria-hidden="true"></i> Limpiar</button>
       </div>
     </form>
@@ -46,9 +48,9 @@ import { fmtKg, semanaActual } from '../core/util';
               </div>
             </div>
             <div class="informe__grid">
-              <div class="informe__cell"><div class="k">APROVECHABLE</div><div class="v">{{ kg(r.total_aprovechable) }} kg</div></div>
-              <div class="informe__cell informe__cell--casc"><div class="k">CASCARA / HUESO</div><div class="v">{{ kg(r.total_cascara_hueso) }} kg</div></div>
-              <div class="informe__cell informe__cell--total"><div class="k">TOTAL GENERAL</div><div class="v">{{ kg(r.total_general) }} kg</div></div>
+              <div class="informe__cell"><div class="k">APROVECHABLE</div><div class="v">{{ kg(r.total_aprovechable) }} lb</div></div>
+              <div class="informe__cell informe__cell--casc"><div class="k">CASCARA / HUESO</div><div class="v">{{ kg(r.total_cascara_hueso) }} lb</div></div>
+              <div class="informe__cell informe__cell--total"><div class="k">TOTAL GENERAL</div><div class="v">{{ kg(r.total_general) }} lb</div></div>
             </div>
           </div>
         }
@@ -94,6 +96,8 @@ export class InformeComponent implements OnInit {
     }
   }
 
+  hoy() { const d = hoyYmd(); this.iDesde = d; this.iHasta = d; this.cargar(); }
+  estaSemana() { const s = semanaActual(); this.iDesde = s.desde; this.iHasta = s.hasta; this.cargar(); }
   limpiar() { this.iDesde = ''; this.iHasta = ''; this.cargar(); }
 
   async descargar(r: InformeDia) {

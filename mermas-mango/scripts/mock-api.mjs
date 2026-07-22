@@ -47,6 +47,34 @@ function send(res, code, body) {
 }
 function fmt(n) { return Number(n).toFixed(6); }
 
+// desde/hasta aceptan "YYYY-MM-DD" o "YYYY-MM-DDTHH:MM[:SS]".
+function nDesde(v) { return v.includes("T") ? (v.length === 16 ? v + ":00" : v) : v + "T00:00:00"; }
+function nHasta(v) { return v.includes("T") ? (v.length === 16 ? v + ":59" : v) : v + "T23:59:59"; }
+function enRango(f, desde, hasta) {
+  f = f || "";
+  if (desde && f < nDesde(desde)) return false;
+  if (hasta && f > nHasta(hasta)) return false;
+  return true;
+}
+
+/** Reporte agrupado por lote en un rango (usado por /reporte y /reporte/hoy). */
+function buildReporte(registros, desde, hasta) {
+  const src = registros.filter((r) => enRango(r.fecha_hora, desde, hasta));
+  const map = {};
+  let tA = 0, tC = 0, tN = 0;
+  src.forEach((r) => {
+    const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0, lineas: new Set() });
+    if (r.linea_prod) g.lineas.add(r.linea_prod);
+    if (r.tipo_merma === "aprovechable") { g.a += +r.cant_kg; tA += +r.cant_kg; } else { g.c += +r.cant_kg; tC += +r.cant_kg; }
+    g.n++; tN++;
+  });
+  const lotes = Object.keys(map).sort().map((k) => {
+    const g = map[k];
+    return { lote: g.lote, lineas: Array.from(g.lineas).sort(), rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n };
+  });
+  return { desde: desde || null, hasta: hasta || null, lotes, total_aprovechable: fmt(tA), total_no_aprovechable: fmt(tC), total_rezaga: fmt(tA + tC), num_registros: tN };
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, null);
 
@@ -132,8 +160,7 @@ const server = http.createServer((req, res) => {
         const desde = url.searchParams.get("desde");
         const hasta = url.searchParams.get("hasta");
         if (fecha) out = out.filter((r) => (r.fecha_hora || "").slice(0, 10) === fecha);
-        if (desde) out = out.filter((r) => (r.fecha_hora || "").slice(0, 10) >= desde);
-        if (hasta) out = out.filter((r) => (r.fecha_hora || "").slice(0, 10) <= hasta);
+        if (desde || hasta) out = out.filter((r) => enRango(r.fecha_hora, desde, hasta));
         const skip = +(url.searchParams.get("skip") || 0);
         const limit = +(url.searchParams.get("limit") || 100);
         return send(res, 200, out.slice(skip, skip + limit));
@@ -141,9 +168,7 @@ const server = http.createServer((req, res) => {
       if (path === "/mermas/informe" && req.method === "GET") {
         const desde = url.searchParams.get("desde");
         const hasta = url.searchParams.get("hasta");
-        let src = registros;
-        if (desde) src = src.filter((r) => (r.fecha_hora || "").slice(0, 10) >= desde);
-        if (hasta) src = src.filter((r) => (r.fecha_hora || "").slice(0, 10) <= hasta);
+        const src = registros.filter((r) => enRango(r.fecha_hora, desde, hasta));
         const map = {};
         src.forEach((r) => {
           const dia = (r.fecha_hora || "").slice(0, 10);
@@ -157,22 +182,13 @@ const server = http.createServer((req, res) => {
         })).sort((a, b) => b.fecha.localeCompare(a.fecha));
         return send(res, 200, rows);
       }
+      if (path === "/mermas/reporte/hoy" && req.method === "GET") {
+        const d = new Date();
+        const ymd = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        return send(res, 200, buildReporte(registros, ymd, ymd));
+      }
       if (path === "/mermas/reporte" && req.method === "GET") {
-        const desde = url.searchParams.get("desde");
-        const hasta = url.searchParams.get("hasta");
-        let src = registros;
-        if (desde) src = src.filter((r) => (r.fecha_hora || "").slice(0, 10) >= desde);
-        if (hasta) src = src.filter((r) => (r.fecha_hora || "").slice(0, 10) <= hasta);
-        const map = {};
-        let tA = 0, tC = 0, tN = 0;
-        src.forEach((r) => {
-          const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0, lineas: new Set() });
-          if (r.linea_prod) g.lineas.add(r.linea_prod);
-          if (r.tipo_merma === "aprovechable") { g.a += +r.cant_kg; tA += +r.cant_kg; } else { g.c += +r.cant_kg; tC += +r.cant_kg; }
-          g.n++; tN++;
-        });
-        const lotes = Object.keys(map).sort().map((k) => { const g = map[k]; return { lote: g.lote, lineas: Array.from(g.lineas).sort(), rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n }; });
-        return send(res, 200, { desde: desde || null, hasta: hasta || null, lotes, total_aprovechable: fmt(tA), total_no_aprovechable: fmt(tC), total_rezaga: fmt(tA + tC), num_registros: tN });
+        return send(res, 200, buildReporte(registros, url.searchParams.get("desde"), url.searchParams.get("hasta")));
       }
       if (path === "/mermas" && req.method === "POST") {
         let b = {};

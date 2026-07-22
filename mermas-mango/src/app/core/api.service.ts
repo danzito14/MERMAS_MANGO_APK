@@ -57,6 +57,23 @@ export class ApiService {
     }
   }
 
+  // Los filtros aceptan "YYYY-MM-DD" o "YYYY-MM-DDTHH:MM[:SS]".
+  // Se normalizan a datetime completo para comparar contra fecha_hora (ISO) como texto.
+  private normDesde(v: string): string {
+    if (!v.includes('T')) return v + 'T00:00:00';
+    return v.length === 16 ? v + ':00' : v;
+  }
+  private normHasta(v: string): string {
+    if (!v.includes('T')) return v + 'T23:59:59';
+    return v.length === 16 ? v + ':59' : v;
+  }
+  private enRango(fechaHora: string, desde?: string, hasta?: string): boolean {
+    const f = fechaHora || '';
+    if (desde && f < this.normDesde(desde)) return false;
+    if (hasta && f > this.normHasta(hasta)) return false;
+    return true;
+  }
+
   async updatePending(): Promise<number> {
     const n = await this.db.countOutbox();
     this.pending.set(n);
@@ -156,8 +173,7 @@ export class ApiService {
     if (params.linea_prod) { const p = params.linea_prod.toLowerCase(); all = all.filter((r) => (r.linea_prod || '').toLowerCase().indexOf(p) !== -1); }
     if (params.tipo_merma) all = all.filter((r) => r.tipo_merma === params.tipo_merma);
     if (params.fecha) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) === params.fecha);
-    if (params.desde) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) >= params.desde!);
-    if (params.hasta) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) <= params.hasta!);
+    if (params.desde || params.hasta) all = all.filter((r) => this.enRango(r.fecha_hora, params.desde, params.hasta));
     all.sort((a, b) => this.cmp(a, b));
     const total = all.length;
     const skip = params.skip || 0;
@@ -187,8 +203,7 @@ export class ApiService {
 
   private async computeInformeLocal(desde?: string, hasta?: string): Promise<InformeDia[]> {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
-    if (desde) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) >= desde);
-    if (hasta) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) <= hasta);
+    if (desde || hasta) all = all.filter((r) => this.enRango(r.fecha_hora, desde, hasta));
     const map: Record<string, { fecha: string; a: number; c: number; n: number }> = {};
     all.forEach((r) => {
       const dia = (r.fecha_hora || '').slice(0, 10);
@@ -219,10 +234,24 @@ export class ApiService {
     return { data: await this.computeReporteLocal(desde, hasta), offline: true };
   }
 
+  /** Reporte por lote del dia de hoy (endpoint dedicado del backend). */
+  async reporteHoy(): Promise<{ data: ReporteLote; offline: boolean }> {
+    if (this.online()) {
+      try {
+        const data = await this.call(firstValueFrom(this.http.get<ReporteLote>(this.base() + '/mermas/reporte/hoy')));
+        return { data, offline: false };
+      } catch (e) {
+        if (!(e as ApiError).network) throw e;
+      }
+    }
+    const d = new Date();
+    const ymd = d.getFullYear() + '-' + this.pad(d.getMonth() + 1) + '-' + this.pad(d.getDate());
+    return { data: await this.computeReporteLocal(ymd, ymd), offline: true };
+  }
+
   private async computeReporteLocal(desde?: string, hasta?: string): Promise<ReporteLote> {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
-    if (desde) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) >= desde);
-    if (hasta) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) <= hasta);
+    if (desde || hasta) all = all.filter((r) => this.enRango(r.fecha_hora, desde, hasta));
     const map: Record<string, { lote: string; a: number; c: number; n: number; lineas: Set<string> }> = {};
     let tA = 0, tC = 0, tN = 0;
     all.forEach((r) => {
