@@ -5,7 +5,7 @@ import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { ToastService } from '../core/toast.service';
 import { LocalRegistro } from '../core/models';
-import { fmtKg, formatFecha, tipoIcon, tipoLabel } from '../core/util';
+import { fmtKg, formatFecha, semanaActual, tipoIcon, tipoLabel } from '../core/util';
 
 const PAGE_SIZE = 20;
 
@@ -39,6 +39,7 @@ const PAGE_SIZE = 20;
       <div class="field"><label for="f_hasta">HASTA</label><input id="f_hasta" type="date" name="hasta" [(ngModel)]="fHasta" /></div>
       <div class="filters__actions">
         <button class="btn btn--primary" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Filtrar</button>
+        <button class="btn btn--ghost" type="button" (click)="estaSemana()"><i class="fa-solid fa-calendar-week" aria-hidden="true"></i> Esta semana</button>
         <button class="btn btn--ghost" type="button" (click)="limpiar()"><i class="fa-solid fa-eraser" aria-hidden="true"></i> Limpiar</button>
       </div>
     </form>
@@ -124,7 +125,13 @@ export class RegistrosComponent implements OnInit {
     return fmtKg(this.pageItems().filter((r) => r.tipo_merma === tipo).reduce((a, r) => a + (Number(r.cant_kg) || 0), 0));
   }
 
-  ngOnInit() { this.cargar(true); }
+  ngOnInit() {
+    // Abre con la semana actual (lunes a domingo).
+    const s = semanaActual();
+    this.fDesde = s.desde;
+    this.fHasta = s.hasta;
+    this.cargar(true);
+  }
 
   private async cargar(refresh: boolean) {
     if (refresh) { this.loading.set(true); await this.api.refresh(); }
@@ -138,6 +145,7 @@ export class RegistrosComponent implements OnInit {
   }
 
   filtrar() { this.page.set(0); this.cargar(true); }
+  estaSemana() { const s = semanaActual(); this.fDesde = s.desde; this.fHasta = s.hasta; this.page.set(0); this.cargar(true); }
   limpiar() { this.fLote = ''; this.fLinea = ''; this.fTipo = ''; this.fDesde = ''; this.fHasta = ''; this.page.set(0); this.cargar(true); }
   prev() { if (this.page() > 0) this.page.update((p) => p - 1); }
   next() { if (this.page() < this.maxPage()) this.page.update((p) => p + 1); }
