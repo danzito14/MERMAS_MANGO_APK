@@ -31,10 +31,10 @@ type Linea = 'L1' | 'L2' | 'L3' | 'L4';
 
       <div class="field">
         <label for="c_lote">LOTE <span class="req">*</span></label>
-        <input id="c_lote" type="text" inputmode="numeric" maxlength="20" name="lote"
+        <input id="c_lote" type="text" maxlength="50" name="lote"
                [ngModel]="lote()" (ngModelChange)="onLote($event)"
-               placeholder="Solo numeros. Ej. 12345" autocomplete="off" [class.is-invalid]="!!err()['lote']" />
-        <small class="hint">Escribe el numero de lote (solo digitos).</small>
+               placeholder="Ej. 10189P02001" autocomplete="off" spellcheck="false" [class.is-invalid]="!!err()['lote']" />
+        <small class="hint">Numero de lote (letras y numeros).</small>
         @if (err()['lote']) { <span class="error">{{ err()['lote'] }}</span> }
       </div>
 
@@ -101,13 +101,13 @@ export class CapturaComponent implements OnInit {
         if (!r) { this.toast.show('Registro no encontrado', 'error'); this.router.navigateByUrl('/registros'); return; }
         this.linea.set(/^L[1-4]$/.test(r.linea_prod) ? (r.linea_prod as Linea) : 'L1');
         this.tipo.set(r.tipo_merma === 'cascara_hueso' ? 'cascara_hueso' : 'aprovechable');
-        this.lote.set(String(r.lote || '').replace(/\D+/g, ''));
+        this.lote.set(String(r.lote || ''));
         this.cant = r.cant_kg;
       });
     }
   }
 
-  onLote(v: string) { this.lote.set((v || '').replace(/\D+/g, '')); }
+  onLote(v: string) { this.lote.set(v || ''); }
   cancelar() { this.router.navigateByUrl('/registros'); }
 
   private validar(): Record<string, string> {
@@ -119,10 +119,9 @@ export class CapturaComponent implements OnInit {
     else if (n < 0) e['cant_kg'] = 'No puede ser negativa.';
     else if (!/^\d+(\.\d{1,2})?$/.test(raw)) e['cant_kg'] = 'Maximo 2 decimales.';
 
-    const lote = this.lote();
+    const lote = this.lote().trim();
     if (!lote) e['lote'] = 'El lote es obligatorio.';
-    else if (!/^\d+$/.test(lote)) e['lote'] = 'El lote solo admite numeros.';
-    else if (lote.length > 50) e['lote'] = 'Lote demasiado largo.';
+    else if (lote.length > 50) e['lote'] = 'Lote demasiado largo (max 50).';
     return e;
   }
 
@@ -131,7 +130,7 @@ export class CapturaComponent implements OnInit {
     this.err.set(errs);
     if (Object.keys(errs).length) { this.toast.show('Revisa los campos marcados', 'error'); return; }
 
-    const data = { cant_kg: this.cant.trim(), tipo_merma: this.tipo(), lote: this.lote(), linea_prod: this.linea() };
+    const data = { cant_kg: this.cant.trim(), tipo_merma: this.tipo(), lote: this.lote().trim(), linea_prod: this.linea() };
     const key = this.editKey();
     this.submitting.set(true);
     try {
