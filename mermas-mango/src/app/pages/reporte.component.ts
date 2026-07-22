@@ -103,16 +103,25 @@ export class ReporteComponent implements OnInit {
     this.cargar();
   }
 
-  /** El input datetime-local da "YYYY-MM-DDTHH:MM"; el backend espera segundos. */
-  private conSegundos(v: string): string | undefined {
+  /** El input datetime-local da "YYYY-MM-DDTHH:MM". El inicio arranca en el segundo 00. */
+  private desdeParam(): string | undefined {
+    const v = this.desde;
     if (!v) return undefined;
     return v.length === 16 ? v + ':00' : v;
+  }
+
+  /** El fin cierra en el segundo 59, para no perder lo registrado dentro de ese minuto
+   *  (con el valor por defecto queda 23:59:59, o sea el dia completo). */
+  private hastaParam(): string | undefined {
+    const v = this.hasta;
+    if (!v) return undefined;
+    return v.length === 16 ? v + ':59' : v;
   }
 
   async cargar() {
     this.loading.set(true);
     try {
-      const res = await this.api.reporte(this.conSegundos(this.desde), this.conSegundos(this.hasta));
+      const res = await this.api.reporte(this.desdeParam(), this.hastaParam());
       this.data.set(res.data);
     } catch {
       this.data.set(null);
