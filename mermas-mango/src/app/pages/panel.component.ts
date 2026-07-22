@@ -1,27 +1,38 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { LocalRegistro } from '../core/models';
-import { fmtKg, formatFecha, tipoIcon, tipoLabel } from '../core/util';
+import { fmtKg, formatFecha, semanaActual, tipoIcon, tipoLabel } from '../core/util';
 
 interface Stat { kind: string; icon: string; num: string; label: string; }
 
 @Component({
   selector: 'app-panel',
   standalone: true,
-  imports: [RouterLink],
+  imports: [FormsModule, RouterLink],
   template: `
     <div class="page-head">
       <div>
         <h2 class="page-title">Panel general</h2>
-        <p class="page-sub">Resumen de las mermas registradas por lote.</p>
+        <p class="page-sub">Resumen de la semana.</p>
       </div>
       <button class="btn btn--ghost" type="button" (click)="cargar()"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Actualizar</button>
     </div>
 
+    <form class="filters card" (ngSubmit)="cargar()">
+      <div class="field"><label for="p_desde">DESDE</label><input id="p_desde" type="date" name="desde" [(ngModel)]="desde" /></div>
+      <div class="field"><label for="p_hasta">HASTA</label><input id="p_hasta" type="date" name="hasta" [(ngModel)]="hasta" /></div>
+      <div class="filters__actions">
+        <button class="btn btn--primary" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Ver</button>
+        <button class="btn btn--ghost" type="button" (click)="estaSemana()"><i class="fa-solid fa-calendar-week" aria-hidden="true"></i> Esta semana</button>
+        <button class="btn btn--ghost" type="button" (click)="limpiar()"><i class="fa-solid fa-eraser" aria-hidden="true"></i> Todo</button>
+      </div>
+    </form>
+
     <div class="section-head">
       <span class="section-head__badge"><i class="fa-solid fa-boxes-stacked" aria-hidden="true"></i></span>
-      <h3>Totales <span class="section-head__count">({{ nReg() }} registros)</span></h3>
+      <h3>Totales <span class="section-head__count">{{ rangoTxt() }} &middot; {{ nReg() }} registros</span></h3>
     </div>
 
     <div class="stats">
@@ -69,7 +80,7 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
     </div>
     <div class="list">
       @if (!loading() && ultimos().length === 0) {
-        <div class="empty"><i class="fa-solid fa-inbox" aria-hidden="true"></i><strong>Sin registros aun</strong><span>Crea tu primera merma desde el menu.</span></div>
+        <div class="empty"><i class="fa-solid fa-inbox" aria-hidden="true"></i><strong>Sin registros en el rango</strong><span>Cambia las fechas o registra una merma.</span></div>
       }
       @for (r of ultimos(); track r._key) {
         <div class="item" [class.item--casc]="r.tipo_merma === 'cascara_hueso'" [class.item--pending]="r._pending">
@@ -94,6 +105,8 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
 export class PanelComponent implements OnInit {
   private api = inject(ApiService);
 
+  desde = '';
+  hasta = '';
   loading = signal(true);
   stats = signal<Stat[]>([]);
   nReg = signal(0);
@@ -106,46 +119,66 @@ export class PanelComponent implements OnInit {
 
   fecha = formatFecha; label = tipoLabel; icon = tipoIcon; kg = fmtKg;
 
-  ngOnInit() { this.cargar(); }
+  ngOnInit() {
+    const s = semanaActual();
+    this.desde = s.desde;
+    this.hasta = s.hasta;
+    this.cargar();
+  }
+
+  estaSemana() { const s = semanaActual(); this.desde = s.desde; this.hasta = s.hasta; this.cargar(); }
+  limpiar() { this.desde = ''; this.hasta = ''; this.cargar(); }
+
+  rangoTxt(): string {
+    if (!this.desde && !this.hasta) return 'todo el historico';
+    const f = (s: string) => (s ? new Date(s + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }) : '...');
+    return f(this.desde) + ' a ' + f(this.hasta);
+  }
 
   async cargar() {
     this.loading.set(true);
     await this.api.refresh();
-    const [inf, all] = await Promise.all([this.api.informe(), this.api.query({ skip: 0, limit: 1000000 })]);
-    const items = all.items;
 
+    const now = new Date();
+    const ymd = now.getFullYear() + '-' + this.p2(now.getMonth() + 1) + '-' + this.p2(now.getDate());
+    const desde = this.desde || undefined;
+    const hasta = this.hasta || undefined;
+
+    const [inf, rango, hoy] = await Promise.all([
+      this.api.informe(desde, hasta),
+      this.api.query({ desde, hasta, skip: 0, limit: 1000000 }),
+      this.api.query({ fecha: ymd, skip: 0, limit: 1000000 }),
+    ]);
+
+    // Totales del rango (semana por defecto)
     let sumA = 0, sumC = 0, nReg = 0;
     inf.items.forEach((r) => { sumA += Number(r.total_aprovechable) || 0; sumC += Number(r.total_cascara_hueso) || 0; nReg += r.num_registros || 0; });
     const total = sumA + sumC;
-    const nLotes = new Set(items.map((r) => r.lote)).size;
+    const nLotes = new Set(rango.items.map((r) => r.lote)).size;
     this.nReg.set(nReg);
     this.stats.set([
-      { kind: 'blue', icon: 'fa-list-ul', num: String(nReg), label: 'Registros totales' },
+      { kind: 'blue', icon: 'fa-list-ul', num: String(nReg), label: 'Registros' },
       { kind: 'strong', icon: 'fa-boxes-stacked', num: String(nLotes), label: 'Lotes' },
       { kind: 'green', icon: 'fa-leaf', num: fmtKg(sumA), label: 'Aprovechable (kg)' },
       { kind: 'amber', icon: 'fa-bone', num: fmtKg(sumC), label: 'Cascara / Hueso (kg)' },
       { kind: 'strong', icon: 'fa-scale-balanced', num: fmtKg(total), label: 'Total general (kg)' },
     ]);
 
-    const now = new Date();
-    const ymd = now.getFullYear() + '-' + this.p2(now.getMonth() + 1) + '-' + this.p2(now.getDate());
-    let hA = 0, hC = 0, hN = 0;
-    items.forEach((r) => {
-      if ((r.fecha_hora || '').slice(0, 10) === ymd) {
-        const kg = Number(r.cant_kg) || 0;
-        if (r.tipo_merma === 'aprovechable') hA += kg; else hC += kg;
-        hN++;
-      }
+    // Resumen de hoy (siempre del dia actual, independiente del rango)
+    let hA = 0, hC = 0;
+    hoy.items.forEach((r) => {
+      const kg = Number(r.cant_kg) || 0;
+      if (r.tipo_merma === 'aprovechable') hA += kg; else hC += kg;
     });
     const hTot = hA + hC;
     this.hoyKg.set(fmtKg(hTot));
-    this.hoyReg.set(hN);
+    this.hoyReg.set(hoy.items.length);
     this.hoyFecha.set(new Date(ymd + 'T00:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' }));
     const pa = hTot > 0 ? Math.round((hA / hTot) * 100) : 0;
     this.pctAprov.set(pa);
     this.pctCasc.set(hTot > 0 ? 100 - pa : 0);
 
-    this.ultimos.set(items.slice().sort((a, b) => (b.fecha_hora || '').localeCompare(a.fecha_hora || '')).slice(0, 5));
+    this.ultimos.set(rango.items.slice().sort((a, b) => (b.fecha_hora || '').localeCompare(a.fecha_hora || '')).slice(0, 5));
     this.loading.set(false);
   }
 

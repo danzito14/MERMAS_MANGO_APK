@@ -22,6 +22,19 @@ export function fmtKg(v: string | number | null | undefined): string {
   return dec < 2 ? s + '0'.repeat(2 - dec) : s;
 }
 
+/** Rango de la semana actual (lunes a domingo) en formato YYYY-MM-DD. */
+export function semanaActual(): { desde: string; hasta: string } {
+  const hoy = new Date();
+  const dow = (hoy.getDay() + 6) % 7;          // 0 = lunes
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() - dow);
+  const domingo = new Date(lunes);
+  domingo.setDate(lunes.getDate() + 6);
+  const f = (d: Date) =>
+    d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  return { desde: f(lunes), hasta: f(domingo) };
+}
+
 export function tipoLabel(t: TipoMerma | string): string {
   return t === 'cascara_hueso' ? 'Cascara / Hueso' : 'Aprovechable';
 }

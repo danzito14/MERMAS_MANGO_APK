@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { ToastService } from '../core/toast.service';
 import { ApiError, TipoMerma } from '../core/models';
+import { fmtKg } from '../core/util';
 
 type Linea = 'L1' | 'L2' | 'L3' | 'L4';
 
@@ -52,7 +53,7 @@ type Linea = 'L1' | 'L2' | 'L3' | 'L4';
 
       <div class="field">
         <label for="c_cant">CANTIDAD (KG) <span class="req">*</span></label>
-        <input id="c_cant" type="text" inputmode="decimal" name="cant" [(ngModel)]="cant" placeholder="0.00" [class.is-invalid]="!!err()['cant_kg']" />
+        <input id="c_cant" type="text" inputmode="decimal" [value]="cant()" (input)="onCant($event)" placeholder="0.00" autocomplete="off" [class.is-invalid]="!!err()['cant_kg']" />
         <small class="hint">No negativos. Hasta 6 decimales.</small>
         @if (err()['cant_kg']) { <span class="error">{{ err()['cant_kg'] }}</span> }
       </div>
@@ -87,7 +88,7 @@ export class CapturaComponent implements OnInit {
   linea = signal<Linea>('L1');
   tipo = signal<TipoMerma>('aprovechable');
   lote = signal('');
-  cant = '';
+  cant = signal('');
   keep = false;
   err = signal<Record<string, string>>({});
   submitting = signal(false);
@@ -102,17 +103,30 @@ export class CapturaComponent implements OnInit {
         this.linea.set(/^L[1-4]$/.test(r.linea_prod) ? (r.linea_prod as Linea) : 'L1');
         this.tipo.set(r.tipo_merma === 'cascara_hueso' ? 'cascara_hueso' : 'aprovechable');
         this.lote.set(String(r.lote || ''));
-        this.cant = r.cant_kg;
+        this.cant.set(fmtKg(r.cant_kg));
       });
     }
   }
 
   onLote(v: string) { this.lote.set(v || ''); }
+
+  /** Deja escribir solo numeros: un punto decimal y maximo 6 decimales. */
+  onCant(ev: Event) {
+    const el = ev.target as HTMLInputElement;
+    let s = (el.value || '').replace(/,/g, '.').replace(/[^\d.]/g, '');
+    const i = s.indexOf('.');
+    if (i !== -1) s = s.slice(0, i + 1) + s.slice(i + 1).replace(/\./g, '');
+    const dot = s.indexOf('.');
+    if (dot !== -1) s = s.slice(0, dot + 7); // punto + 6 decimales
+    if (el.value !== s) el.value = s;        // corrige el input al instante
+    this.cant.set(s);
+  }
+
   cancelar() { this.router.navigateByUrl('/registros'); }
 
   private validar(): Record<string, string> {
     const e: Record<string, string> = {};
-    const raw = (this.cant || '').trim();
+    const raw = this.cant().trim();
     const n = Number(raw);
     if (raw === '') e['cant_kg'] = 'La cantidad es obligatoria.';
     else if (isNaN(n)) e['cant_kg'] = 'Debe ser un numero (usa punto decimal).';
@@ -130,14 +144,14 @@ export class CapturaComponent implements OnInit {
     this.err.set(errs);
     if (Object.keys(errs).length) { this.toast.show('Revisa los campos marcados', 'error'); return; }
 
-    const data = { cant_kg: this.cant.trim(), tipo_merma: this.tipo(), lote: this.lote().trim(), linea_prod: this.linea() };
+    const data = { cant_kg: this.cant().trim(), tipo_merma: this.tipo(), lote: this.lote().trim(), linea_prod: this.linea() };
     const key = this.editKey();
     this.submitting.set(true);
     try {
       const res = key ? await this.api.actualizar(key, data) : await this.api.crear(data);
       this.toast.show(res.queued ? 'Guardado sin conexion (se sincronizara)' : (key ? 'Registro actualizado' : 'Merma registrada'), res.queued ? 'info' : 'ok');
       if (key) { this.router.navigateByUrl('/registros'); return; }
-      this.cant = '';
+      this.cant.set('');
       if (!this.keep) { this.linea.set('L1'); this.tipo.set('aprovechable'); this.lote.set(''); }
     } catch (e) {
       const err = e as ApiError;

@@ -4,7 +4,7 @@ import { ApiService } from '../core/api.service';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
 import { ReporteLote } from '../core/models';
-import { fmtKg } from '../core/util';
+import { fmtKg, semanaActual } from '../core/util';
 
 @Component({
   selector: 'app-reporte',
@@ -93,7 +93,13 @@ export class ReporteComponent implements OnInit {
   loading = signal(true);
   descargando = signal(false);
 
-  ngOnInit() { this.cargar(); }
+  ngOnInit() {
+    // Abre con la semana actual (lunes a domingo).
+    const s = semanaActual();
+    this.desde = s.desde;
+    this.hasta = s.hasta;
+    this.cargar();
+  }
 
   async cargar() {
     this.loading.set(true);

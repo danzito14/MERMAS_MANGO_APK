@@ -4,7 +4,7 @@ import { ApiService } from '../core/api.service';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
 import { InformeDia } from '../core/models';
-import { fmtKg } from '../core/util';
+import { fmtKg, semanaActual } from '../core/util';
 
 @Component({
   selector: 'app-informe',
@@ -68,7 +68,13 @@ export class InformeComponent implements OnInit {
   loading = signal(true);
   descargando = signal<string | null>(null);
 
-  ngOnInit() { this.cargar(); }
+  ngOnInit() {
+    // Abre con la semana actual (lunes a domingo).
+    const s = semanaActual();
+    this.iDesde = s.desde;
+    this.iHasta = s.hasta;
+    this.cargar();
+  }
 
   fmtDia(f: string): string {
     const d = new Date(f + 'T00:00:00');
