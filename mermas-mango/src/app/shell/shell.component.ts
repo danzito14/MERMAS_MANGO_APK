@@ -42,7 +42,8 @@ import { ToastService } from '../core/toast.service';
         }
         <a class="navitem" routerLink="/panel" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-chart-pie" aria-hidden="true"></i><span>Panel</span></a>
         <a class="navitem" routerLink="/registros" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-list-ul" aria-hidden="true"></i><span>Registros</span></a>
-        <a class="navitem" routerLink="/informe" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-chart-column" aria-hidden="true"></i><span>Informe por lote</span></a>
+        <a class="navitem" routerLink="/informe" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-chart-column" aria-hidden="true"></i><span>Informe diario</span></a>
+        <a class="navitem" routerLink="/reporte" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-table" aria-hidden="true"></i><span>Reporte por lote</span></a>
         @if (auth.canUsers()) {
           <a class="navitem" routerLink="/usuarios" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-users-gear" aria-hidden="true"></i><span>Usuarios</span></a>
         }

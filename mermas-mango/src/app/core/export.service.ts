@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { ApiService } from './api.service';
-import { InformeDia, LocalRegistro } from './models';
+import { InformeDia, LocalRegistro, ReporteLote } from './models';
 import { formatFecha, tipoLabel } from './util';
 
 /** Genera y descarga/comparte el informe de un dia como CSV. */
@@ -15,6 +15,21 @@ export class ExportService {
     const registros = (await this.api.query({ fecha: r.fecha, skip: 0, limit: 1000000 })).items;
     const csv = this.buildCsv(r, registros);
     await this.saveCsv(`informe-${r.fecha}.csv`, csv);
+  }
+
+  /** Reporte por lote (estilo Excel) del rango completo. */
+  async reporteLoteCsv(r: ReporteLote): Promise<void> {
+    const nl = '\r\n';
+    const L: string[] = [];
+    L.push('Reporte de merma por lote');
+    L.push(['Rango', this.cell((r.desde || 'inicio') + ' a ' + (r.hasta || 'hoy'))].join(','));
+    L.push(['Generado', this.cell(formatFecha(new Date().toISOString()))].join(','));
+    L.push('');
+    L.push(['Lote', 'Rezaga aprovechable (kg)', 'Rezaga no aprovechable (kg)', 'Total rezaga (kg)', 'Registros'].join(','));
+    r.lotes.forEach((f) => L.push([this.cell(f.lote), this.cell(f.rezaga_aprovechable), this.cell(f.rezaga_no_aprovechable), this.cell(f.total_rezaga), this.cell(f.num_registros)].join(',')));
+    L.push(['TOTAL', this.cell(r.total_aprovechable), this.cell(r.total_no_aprovechable), this.cell(r.total_rezaga), this.cell(r.num_registros)].join(','));
+    const rango = (r.desde || 'inicio') + '_a_' + (r.hasta || 'hoy');
+    await this.saveCsv(`reporte-lotes-${rango}.csv`, '﻿' + L.join(nl));
   }
 
   private cell(v: any): string {

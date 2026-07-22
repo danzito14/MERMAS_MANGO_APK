@@ -53,7 +53,7 @@ type Linea = 'L1' | 'L2' | 'L3' | 'L4';
       <div class="field">
         <label for="c_cant">CANTIDAD (KG) <span class="req">*</span></label>
         <input id="c_cant" type="text" inputmode="decimal" name="cant" [(ngModel)]="cant" placeholder="0.00" [class.is-invalid]="!!err()['cant_kg']" />
-        <small class="hint">No negativos. Maximo 100 kg. Hasta 2 decimales.</small>
+        <small class="hint">No negativos. Hasta 2 decimales.</small>
         @if (err()['cant_kg']) { <span class="error">{{ err()['cant_kg'] }}</span> }
       </div>
 
@@ -117,7 +117,6 @@ export class CapturaComponent implements OnInit {
     if (raw === '') e['cant_kg'] = 'La cantidad es obligatoria.';
     else if (isNaN(n)) e['cant_kg'] = 'Debe ser un numero (usa punto decimal).';
     else if (n < 0) e['cant_kg'] = 'No puede ser negativa.';
-    else if (n > 100) e['cant_kg'] = 'El maximo es 100 kg.';
     else if (!/^\d+(\.\d{1,2})?$/.test(raw)) e['cant_kg'] = 'Maximo 2 decimales.';
 
     const lote = this.lote();

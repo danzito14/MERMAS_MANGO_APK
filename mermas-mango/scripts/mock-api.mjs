@@ -157,11 +157,27 @@ const server = http.createServer((req, res) => {
         })).sort((a, b) => b.fecha.localeCompare(a.fecha));
         return send(res, 200, rows);
       }
+      if (path === "/mermas/reporte" && req.method === "GET") {
+        const desde = url.searchParams.get("desde");
+        const hasta = url.searchParams.get("hasta");
+        let src = registros;
+        if (desde) src = src.filter((r) => (r.fecha_hora || "").slice(0, 10) >= desde);
+        if (hasta) src = src.filter((r) => (r.fecha_hora || "").slice(0, 10) <= hasta);
+        const map = {};
+        let tA = 0, tC = 0, tN = 0;
+        src.forEach((r) => {
+          const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0 });
+          if (r.tipo_merma === "aprovechable") { g.a += +r.cant_kg; tA += +r.cant_kg; } else { g.c += +r.cant_kg; tC += +r.cant_kg; }
+          g.n++; tN++;
+        });
+        const lotes = Object.keys(map).sort().map((k) => { const g = map[k]; return { lote: g.lote, rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n }; });
+        return send(res, 200, { desde: desde || null, hasta: hasta || null, lotes, total_aprovechable: fmt(tA), total_no_aprovechable: fmt(tC), total_rezaga: fmt(tA + tC), num_registros: tN });
+      }
       if (path === "/mermas" && req.method === "POST") {
         let b = {};
         try { b = JSON.parse(raw || "{}"); } catch {}
         const n = Number(b.cant_kg);
-        if (isNaN(n) || n < 0 || n > 100) return send(res, 422, { detail: [{ type: "value_error", loc: ["body", "cant_kg"], msg: "Input should be between 0 and 100", input: b.cant_kg }] });
+        if (isNaN(n) || n < 0) return send(res, 422, { detail: [{ type: "value_error", loc: ["body", "cant_kg"], msg: "Input should be greater than or equal to 0", input: b.cant_kg }] });
         const rec = {
           id_registro: ++seq, cant_kg: fmt(n), tipo_merma: b.tipo_merma,
           lote: b.lote, linea_prod: b.linea_prod,

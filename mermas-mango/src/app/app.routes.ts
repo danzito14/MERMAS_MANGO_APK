@@ -16,6 +16,7 @@ export const routes: Routes = [
       { path: 'panel', loadComponent: () => import('./pages/panel.component').then((m) => m.PanelComponent) },
       { path: 'registros', loadComponent: () => import('./pages/registros.component').then((m) => m.RegistrosComponent) },
       { path: 'informe', loadComponent: () => import('./pages/informe.component').then((m) => m.InformeComponent) },
+      { path: 'reporte', loadComponent: () => import('./pages/reporte.component').then((m) => m.ReporteComponent) },
       { path: 'usuarios', canActivate: [adminGuard], loadComponent: () => import('./pages/usuarios.component').then((m) => m.UsuariosComponent) },
       { path: 'ajustes', loadComponent: () => import('./pages/ajustes.component').then((m) => m.AjustesComponent) },
       { path: '', pathMatch: 'full', redirectTo: 'captura' },

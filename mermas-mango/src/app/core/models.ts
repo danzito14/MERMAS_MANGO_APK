@@ -48,6 +48,26 @@ export interface InformeDia {
   num_registros: number;
 }
 
+/** Fila del reporte por lote (estilo Excel). */
+export interface ReporteLoteFila {
+  lote: string;
+  rezaga_aprovechable: string;
+  rezaga_no_aprovechable: string;
+  total_rezaga: string;
+  num_registros: number;
+}
+
+/** Reporte por lote en un rango de fechas, con la fila de totales. */
+export interface ReporteLote {
+  desde: string | null;
+  hasta: string | null;
+  lotes: ReporteLoteFila[];
+  total_aprovechable: string;
+  total_no_aprovechable: string;
+  total_rezaga: string;
+  num_registros: number;
+}
+
 export interface UsuarioOut {
   id_usuario: number;
   username: string;
