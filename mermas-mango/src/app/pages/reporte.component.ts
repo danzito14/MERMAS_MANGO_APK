@@ -4,6 +4,7 @@ import { ApiService } from '../core/api.service';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
 import { ReporteLote } from '../core/models';
+import { fmtKg } from '../core/util';
 
 @Component({
   selector: 'app-reporte',
@@ -43,6 +44,7 @@ import { ReporteLote } from '../core/models';
             <thead>
               <tr>
                 <th>Lote</th>
+                <th>Lineas</th>
                 <th class="num">Aprovechable (kg)</th>
                 <th class="num">No aprovechable (kg)</th>
                 <th class="num">Total rezaga (kg)</th>
@@ -53,9 +55,10 @@ import { ReporteLote } from '../core/models';
               @for (f of d.lotes; track f.lote) {
                 <tr>
                   <td>{{ f.lote }}</td>
-                  <td class="num">{{ f.rezaga_aprovechable }}</td>
-                  <td class="num">{{ f.rezaga_no_aprovechable }}</td>
-                  <td class="num strong">{{ f.total_rezaga }}</td>
+                  <td>{{ (f.lineas || []).join(', ') || '-' }}</td>
+                  <td class="num">{{ kg(f.rezaga_aprovechable) }}</td>
+                  <td class="num">{{ kg(f.rezaga_no_aprovechable) }}</td>
+                  <td class="num strong">{{ kg(f.total_rezaga) }}</td>
                   <td class="num">{{ f.num_registros }}</td>
                 </tr>
               }
@@ -63,9 +66,10 @@ import { ReporteLote } from '../core/models';
             <tfoot>
               <tr>
                 <td>TOTAL</td>
-                <td class="num">{{ d.total_aprovechable }}</td>
-                <td class="num">{{ d.total_no_aprovechable }}</td>
-                <td class="num strong">{{ d.total_rezaga }}</td>
+                <td></td>
+                <td class="num">{{ kg(d.total_aprovechable) }}</td>
+                <td class="num">{{ kg(d.total_no_aprovechable) }}</td>
+                <td class="num strong">{{ kg(d.total_rezaga) }}</td>
                 <td class="num">{{ d.num_registros }}</td>
               </tr>
             </tfoot>
@@ -82,6 +86,7 @@ export class ReporteComponent implements OnInit {
   private exporter = inject(ExportService);
   private toast = inject(ToastService);
 
+  kg = fmtKg;
   desde = '';
   hasta = '';
   data = signal<ReporteLote | null>(null);

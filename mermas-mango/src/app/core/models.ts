@@ -51,6 +51,7 @@ export interface InformeDia {
 /** Fila del reporte por lote (estilo Excel). */
 export interface ReporteLoteFila {
   lote: string;
+  lineas?: string[];          // lineas de produccion de donde viene ese lote
   rezaga_aprovechable: string;
   rezaga_no_aprovechable: string;
   total_rezaga: string;

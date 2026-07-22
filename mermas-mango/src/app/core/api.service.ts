@@ -34,9 +34,10 @@ export class ApiService {
     return d.getFullYear() + '-' + this.pad(d.getMonth() + 1) + '-' + this.pad(d.getDate()) +
       'T' + this.pad(d.getHours()) + ':' + this.pad(d.getMinutes()) + ':' + this.pad(d.getSeconds());
   }
+  /** Guarda con la misma precision que el backend (6 decimales). */
   formatKg(v: number | string): string {
     const n = Number(v);
-    return isNaN(n) ? '0.00' : n.toFixed(2);
+    return isNaN(n) ? '0.000000' : n.toFixed(6);
   }
   private serverShape(row: RegistroMermaOut): LocalRegistro {
     return {
@@ -198,7 +199,7 @@ export class ApiService {
     });
     return Object.keys(map).sort().reverse().map((k) => {
       const g = map[k];
-      return { fecha: g.fecha, total_aprovechable: g.a.toFixed(2), total_cascara_hueso: g.c.toFixed(2), total_general: (g.a + g.c).toFixed(2), num_registros: g.n };
+      return { fecha: g.fecha, total_aprovechable: g.a.toFixed(6), total_cascara_hueso: g.c.toFixed(6), total_general: (g.a + g.c).toFixed(6), num_registros: g.n };
     });
   }
 
@@ -222,21 +223,22 @@ export class ApiService {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
     if (desde) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) >= desde);
     if (hasta) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) <= hasta);
-    const map: Record<string, { lote: string; a: number; c: number; n: number }> = {};
+    const map: Record<string, { lote: string; a: number; c: number; n: number; lineas: Set<string> }> = {};
     let tA = 0, tC = 0, tN = 0;
     all.forEach((r) => {
-      const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0 });
+      const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0, lineas: new Set<string>() });
+      if (r.linea_prod) g.lineas.add(r.linea_prod);
       const kg = Number(r.cant_kg) || 0;
       if (r.tipo_merma === 'aprovechable') { g.a += kg; tA += kg; } else { g.c += kg; tC += kg; }
       g.n++; tN++;
     });
     const lotes = Object.keys(map).sort().map((k) => {
       const g = map[k];
-      return { lote: g.lote, rezaga_aprovechable: g.a.toFixed(2), rezaga_no_aprovechable: g.c.toFixed(2), total_rezaga: (g.a + g.c).toFixed(2), num_registros: g.n };
+      return { lote: g.lote, lineas: Array.from(g.lineas).sort(), rezaga_aprovechable: g.a.toFixed(6), rezaga_no_aprovechable: g.c.toFixed(6), total_rezaga: (g.a + g.c).toFixed(6), num_registros: g.n };
     });
     return {
       desde: desde || null, hasta: hasta || null, lotes,
-      total_aprovechable: tA.toFixed(2), total_no_aprovechable: tC.toFixed(2), total_rezaga: (tA + tC).toFixed(2), num_registros: tN,
+      total_aprovechable: tA.toFixed(6), total_no_aprovechable: tC.toFixed(6), total_rezaga: (tA + tC).toFixed(6), num_registros: tN,
     };
   }
 

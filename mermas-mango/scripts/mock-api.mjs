@@ -45,7 +45,7 @@ function send(res, code, body) {
   });
   res.end(data);
 }
-function fmt(n) { return Number(n).toFixed(2); }
+function fmt(n) { return Number(n).toFixed(6); }
 
 const server = http.createServer((req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, null);
@@ -166,11 +166,12 @@ const server = http.createServer((req, res) => {
         const map = {};
         let tA = 0, tC = 0, tN = 0;
         src.forEach((r) => {
-          const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0 });
+          const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0, lineas: new Set() });
+          if (r.linea_prod) g.lineas.add(r.linea_prod);
           if (r.tipo_merma === "aprovechable") { g.a += +r.cant_kg; tA += +r.cant_kg; } else { g.c += +r.cant_kg; tC += +r.cant_kg; }
           g.n++; tN++;
         });
-        const lotes = Object.keys(map).sort().map((k) => { const g = map[k]; return { lote: g.lote, rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n }; });
+        const lotes = Object.keys(map).sort().map((k) => { const g = map[k]; return { lote: g.lote, lineas: Array.from(g.lineas).sort(), rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n }; });
         return send(res, 200, { desde: desde || null, hasta: hasta || null, lotes, total_aprovechable: fmt(tA), total_no_aprovechable: fmt(tC), total_rezaga: fmt(tA + tC), num_registros: tN });
       }
       if (path === "/mermas" && req.method === "POST") {

@@ -4,6 +4,7 @@ import { ApiService } from '../core/api.service';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
 import { InformeDia } from '../core/models';
+import { fmtKg } from '../core/util';
 
 @Component({
   selector: 'app-informe',
@@ -45,9 +46,9 @@ import { InformeDia } from '../core/models';
               </div>
             </div>
             <div class="informe__grid">
-              <div class="informe__cell"><div class="k">APROVECHABLE</div><div class="v">{{ r.total_aprovechable }} kg</div></div>
-              <div class="informe__cell informe__cell--casc"><div class="k">CASCARA / HUESO</div><div class="v">{{ r.total_cascara_hueso }} kg</div></div>
-              <div class="informe__cell informe__cell--total"><div class="k">TOTAL GENERAL</div><div class="v">{{ r.total_general }} kg</div></div>
+              <div class="informe__cell"><div class="k">APROVECHABLE</div><div class="v">{{ kg(r.total_aprovechable) }} kg</div></div>
+              <div class="informe__cell informe__cell--casc"><div class="k">CASCARA / HUESO</div><div class="v">{{ kg(r.total_cascara_hueso) }} kg</div></div>
+              <div class="informe__cell informe__cell--total"><div class="k">TOTAL GENERAL</div><div class="v">{{ kg(r.total_general) }} kg</div></div>
             </div>
           </div>
         }
@@ -60,6 +61,7 @@ export class InformeComponent implements OnInit {
   private exporter = inject(ExportService);
   private toast = inject(ToastService);
 
+  kg = fmtKg;
   iDesde = '';
   iHasta = '';
   items = signal<InformeDia[]>([]);

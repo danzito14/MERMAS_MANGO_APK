@@ -5,7 +5,7 @@ import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { ToastService } from '../core/toast.service';
 import { LocalRegistro } from '../core/models';
-import { formatFecha, tipoIcon, tipoLabel } from '../core/util';
+import { fmtKg, formatFecha, tipoIcon, tipoLabel } from '../core/util';
 
 const PAGE_SIZE = 20;
 
@@ -60,7 +60,7 @@ const PAGE_SIZE = 20;
             <span class="item__icon"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i></span>
             <div class="item__main">
               <div class="item__top">
-                <span class="item__kg">{{ r.cant_kg }} kg</span>
+                <span class="item__kg">{{ kg(r.cant_kg) }} kg</span>
                 <span class="badge" [class.badge--casc]="r.tipo_merma === 'cascara_hueso'"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i> {{ label(r.tipo_merma) }}</span>
                 @if (r._pending) { <span class="badge badge--pending"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> Pendiente</span> }
               </div>
@@ -112,16 +112,16 @@ export class RegistrosComponent implements OnInit {
   loading = signal(true);
   confirmKey = signal<string | null>(null);
 
-  fecha = formatFecha; label = tipoLabel; icon = tipoIcon;
+  fecha = formatFecha; label = tipoLabel; icon = tipoIcon; kg = fmtKg;
 
   maxPage = computed(() => Math.max(0, Math.ceil(this.all().length / PAGE_SIZE) - 1));
   pageItems = computed(() => { const s = this.page() * PAGE_SIZE; return this.all().slice(s, s + PAGE_SIZE); });
   sumAprov = computed(() => this.suma('aprovechable'));
   sumCasc = computed(() => this.suma('cascara_hueso'));
-  sumTotal = computed(() => (Number(this.sumAprov()) + Number(this.sumCasc())).toFixed(2));
+  sumTotal = computed(() => fmtKg(Number(this.sumAprov()) + Number(this.sumCasc())));
 
   private suma(tipo: string): string {
-    return this.pageItems().filter((r) => r.tipo_merma === tipo).reduce((a, r) => a + (Number(r.cant_kg) || 0), 0).toFixed(2);
+    return fmtKg(this.pageItems().filter((r) => r.tipo_merma === tipo).reduce((a, r) => a + (Number(r.cant_kg) || 0), 0));
   }
 
   ngOnInit() { this.cargar(true); }

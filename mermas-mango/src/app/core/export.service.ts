@@ -4,7 +4,7 @@ import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { ApiService } from './api.service';
 import { InformeDia, LocalRegistro, ReporteLote } from './models';
-import { formatFecha, tipoLabel } from './util';
+import { fmtKg, formatFecha, tipoLabel } from './util';
 
 /** Genera y descarga/comparte el informe de un dia como CSV. */
 @Injectable({ providedIn: 'root' })
@@ -25,9 +25,13 @@ export class ExportService {
     L.push(['Rango', this.cell((r.desde || 'inicio') + ' a ' + (r.hasta || 'hoy'))].join(','));
     L.push(['Generado', this.cell(formatFecha(new Date().toISOString()))].join(','));
     L.push('');
-    L.push(['Lote', 'Rezaga aprovechable (kg)', 'Rezaga no aprovechable (kg)', 'Total rezaga (kg)', 'Registros'].join(','));
-    r.lotes.forEach((f) => L.push([this.cell(f.lote), this.cell(f.rezaga_aprovechable), this.cell(f.rezaga_no_aprovechable), this.cell(f.total_rezaga), this.cell(f.num_registros)].join(',')));
-    L.push(['TOTAL', this.cell(r.total_aprovechable), this.cell(r.total_no_aprovechable), this.cell(r.total_rezaga), this.cell(r.num_registros)].join(','));
+    L.push(['Lote', 'Lineas', 'Rezaga aprovechable (kg)', 'Rezaga no aprovechable (kg)', 'Total rezaga (kg)', 'Registros'].join(','));
+    r.lotes.forEach((f) => L.push([
+      this.cell(f.lote), this.cell((f.lineas || []).join(' / ')),
+      this.cell(fmtKg(f.rezaga_aprovechable)), this.cell(fmtKg(f.rezaga_no_aprovechable)),
+      this.cell(fmtKg(f.total_rezaga)), this.cell(f.num_registros),
+    ].join(',')));
+    L.push(['TOTAL', '', this.cell(fmtKg(r.total_aprovechable)), this.cell(fmtKg(r.total_no_aprovechable)), this.cell(fmtKg(r.total_rezaga)), this.cell(r.num_registros)].join(','));
     const rango = (r.desde || 'inicio') + '_a_' + (r.hasta || 'hoy');
     await this.saveCsv(`reporte-lotes-${rango}.csv`, '﻿' + L.join(nl));
   }
@@ -46,9 +50,9 @@ export class ExportService {
     L.push('');
     L.push('Resumen');
     L.push(['Tipo', 'Total (kg)', 'Registros'].join(','));
-    L.push(['Aprovechable', this.cell(r.total_aprovechable), ''].join(','));
-    L.push(['Cascara / Hueso', this.cell(r.total_cascara_hueso), ''].join(','));
-    L.push(['Total general', this.cell(r.total_general), this.cell(r.num_registros)].join(','));
+    L.push(['Aprovechable', this.cell(fmtKg(r.total_aprovechable)), ''].join(','));
+    L.push(['Cascara / Hueso', this.cell(fmtKg(r.total_cascara_hueso)), ''].join(','));
+    L.push(['Total general', this.cell(fmtKg(r.total_general)), this.cell(r.num_registros)].join(','));
     L.push('');
     L.push('Detalle');
     L.push(['Hora', 'Lote', 'Linea', 'Tipo', 'Cantidad (kg)', 'Registro'].join(','));
@@ -58,7 +62,7 @@ export class ExportService {
       .forEach((x) => L.push([
         this.cell((x.fecha_hora || '').slice(11, 16)),
         this.cell(x.lote), this.cell(x.linea_prod), this.cell(tipoLabel(x.tipo_merma)),
-        this.cell(x.cant_kg), this.cell(x.registrado_por || ''),
+        this.cell(fmtKg(x.cant_kg)), this.cell(x.registrado_por || ''),
       ].join(',')));
     return '﻿' + L.join(nl); // BOM para Excel
   }

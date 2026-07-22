@@ -2,7 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { LocalRegistro } from '../core/models';
-import { formatFecha, tipoIcon, tipoLabel } from '../core/util';
+import { fmtKg, formatFecha, tipoIcon, tipoLabel } from '../core/util';
 
 interface Stat { kind: string; icon: string; num: string; label: string; }
 
@@ -75,7 +75,7 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
         <div class="item" [class.item--casc]="r.tipo_merma === 'cascara_hueso'" [class.item--pending]="r._pending">
           <span class="item__icon"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i></span>
           <div class="item__main">
-            <div class="item__top"><span class="item__kg">{{ r.cant_kg }} kg</span>
+            <div class="item__top"><span class="item__kg">{{ kg(r.cant_kg) }} kg</span>
               <span class="badge" [class.badge--casc]="r.tipo_merma === 'cascara_hueso'"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i> {{ label(r.tipo_merma) }}</span>
               @if (r._pending) { <span class="badge badge--pending"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> Pendiente</span> }
             </div>
@@ -104,7 +104,7 @@ export class PanelComponent implements OnInit {
   pctCasc = signal(0);
   ultimos = signal<LocalRegistro[]>([]);
 
-  fecha = formatFecha; label = tipoLabel; icon = tipoIcon;
+  fecha = formatFecha; label = tipoLabel; icon = tipoIcon; kg = fmtKg;
 
   ngOnInit() { this.cargar(); }
 
@@ -122,9 +122,9 @@ export class PanelComponent implements OnInit {
     this.stats.set([
       { kind: 'blue', icon: 'fa-list-ul', num: String(nReg), label: 'Registros totales' },
       { kind: 'strong', icon: 'fa-boxes-stacked', num: String(nLotes), label: 'Lotes' },
-      { kind: 'green', icon: 'fa-leaf', num: sumA.toFixed(2), label: 'Aprovechable (kg)' },
-      { kind: 'amber', icon: 'fa-bone', num: sumC.toFixed(2), label: 'Cascara / Hueso (kg)' },
-      { kind: 'strong', icon: 'fa-scale-balanced', num: total.toFixed(2), label: 'Total general (kg)' },
+      { kind: 'green', icon: 'fa-leaf', num: fmtKg(sumA), label: 'Aprovechable (kg)' },
+      { kind: 'amber', icon: 'fa-bone', num: fmtKg(sumC), label: 'Cascara / Hueso (kg)' },
+      { kind: 'strong', icon: 'fa-scale-balanced', num: fmtKg(total), label: 'Total general (kg)' },
     ]);
 
     const now = new Date();
@@ -138,7 +138,7 @@ export class PanelComponent implements OnInit {
       }
     });
     const hTot = hA + hC;
-    this.hoyKg.set(hTot.toFixed(2));
+    this.hoyKg.set(fmtKg(hTot));
     this.hoyReg.set(hN);
     this.hoyFecha.set(new Date(ymd + 'T00:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' }));
     const pa = hTot > 0 ? Math.round((hA / hTot) * 100) : 0;
