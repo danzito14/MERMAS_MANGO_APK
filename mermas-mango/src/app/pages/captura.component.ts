@@ -36,10 +36,10 @@ const MAX_ENTEROS = 10;
 
       <div class="field">
         <label for="c_lote">LOTE <span class="req">*</span></label>
-        <input id="c_lote" type="text" maxlength="50" name="lote"
-               [ngModel]="lote()" (ngModelChange)="onLote($event)"
-               placeholder="Ej. 10189P02001" autocomplete="off" spellcheck="false" [class.is-invalid]="!!err()['lote']" />
-        <small class="hint">Numero de lote (letras y numeros).</small>
+        <input id="c_lote" type="text" maxlength="50" [value]="lote()" (input)="onLote($event)"
+               placeholder="Ej. 10189P02001" autocomplete="off" spellcheck="false" autocapitalize="characters"
+               [class.is-invalid]="!!err()['lote']" />
+        <small class="hint">Numero de lote (letras y numeros). Las letras se guardan en mayusculas.</small>
         @if (err()['lote']) { <span class="error">{{ err()['lote'] }}</span> }
       </div>
 
@@ -55,29 +55,33 @@ const MAX_ENTEROS = 10;
         </div>
       </div>
 
-      @if (variedades().length) {
-        <div class="field">
-          <label>VARIEDAD</label>
-          <div class="segmented segmented--mini" role="group" aria-label="Variedad">
-            <button type="button" class="seg seg--mini" [class.is-active]="idVariedad() === null" (click)="idVariedad.set(null)">Sin especificar</button>
+      <div class="field">
+        <label>VARIEDAD <span class="req">*</span></label>
+        @if (variedades().length) {
+          <div class="segmented segmented--mini" role="group" aria-label="Variedad" [class.seg-invalid]="!!err()['id_variedad']">
             @for (v of variedades(); track v.id) {
               <button type="button" class="seg seg--mini" [class.is-active]="idVariedad() === v.id" (click)="idVariedad.set(v.id)">{{ v.nombre }}</button>
             }
           </div>
-        </div>
-      }
+        } @else {
+          <small class="hint">No hay variedades registradas. Pide a un administrador que las agregue en Catalogos.</small>
+        }
+        @if (err()['id_variedad']) { <span class="error">{{ err()['id_variedad'] }}</span> }
+      </div>
 
-      @if (caracteristicas().length) {
-        <div class="field">
-          <label>CARACTERISTICA</label>
-          <div class="segmented segmented--mini" role="group" aria-label="Caracteristica">
-            <button type="button" class="seg seg--mini" [class.is-active]="idCaracteristica() === null" (click)="idCaracteristica.set(null)">Sin especificar</button>
+      <div class="field">
+        <label>CARACTERISTICA <span class="req">*</span></label>
+        @if (caracteristicas().length) {
+          <div class="segmented segmented--mini" role="group" aria-label="Caracteristica" [class.seg-invalid]="!!err()['id_caracteristica']">
             @for (c of caracteristicas(); track c.id) {
               <button type="button" class="seg seg--mini" [class.is-active]="idCaracteristica() === c.id" (click)="idCaracteristica.set(c.id)">{{ c.nombre }}</button>
             }
           </div>
-        </div>
-      }
+        } @else {
+          <small class="hint">No hay caracteristicas registradas. Pide a un administrador que las agregue en Catalogos.</small>
+        }
+        @if (err()['id_caracteristica']) { <span class="error">{{ err()['id_caracteristica'] }}</span> }
+      </div>
 
       <div class="field">
         <label for="c_cant">CANTIDAD (LIBRAS) <span class="req">*</span></label>
@@ -136,7 +140,7 @@ export class CapturaComponent implements OnInit {
         if (!r) { this.toast.show('Registro no encontrado', 'error'); this.router.navigateByUrl('/registros'); return; }
         this.linea.set(/^L[1-4]$/.test(r.linea_prod) ? (r.linea_prod as Linea) : 'L1');
         this.tipo.set(r.tipo_merma === 'cascara_hueso' ? 'cascara_hueso' : 'aprovechable');
-        this.lote.set(String(r.lote || ''));
+        this.lote.set(String(r.lote || '').toUpperCase());
         this.cant.set(numKg(r.cant_kg));
         this.idVariedad.set(r.id_variedad ?? null);
         this.idCaracteristica.set(r.id_caracteristica ?? null);
@@ -157,7 +161,17 @@ export class CapturaComponent implements OnInit {
     this.caracteristicas.set(vis(this.cat.caracteristicas(), this.idCaracteristica()));
   }
 
-  onLote(v: string) { this.lote.set(v || ''); }
+  /** Las letras del lote van siempre en mayusculas (se corrige el input al instante). */
+  onLote(ev: Event) {
+    const el = ev.target as HTMLInputElement;
+    const s = (el.value || '').toUpperCase();
+    if (el.value !== s) {
+      const pos = el.selectionStart;                 // no mover el cursor al reescribir
+      el.value = s;
+      if (pos !== null) el.setSelectionRange(pos, pos);
+    }
+    this.lote.set(s);
+  }
 
   /** Solo numeros: un punto decimal, maximo 9 enteros y 6 decimales. */
   onCant(ev: Event) {
@@ -187,6 +201,13 @@ export class CapturaComponent implements OnInit {
     const lote = this.lote().trim();
     if (!lote) e['lote'] = 'El lote es obligatorio.';
     else if (lote.length > 50) e['lote'] = 'Lote demasiado largo (max 50).';
+
+    if (this.idVariedad() === null) {
+      e['id_variedad'] = this.variedades().length ? 'Elige la variedad.' : 'No hay variedades en el catalogo.';
+    }
+    if (this.idCaracteristica() === null) {
+      e['id_caracteristica'] = this.caracteristicas().length ? 'Elige la caracteristica.' : 'No hay caracteristicas en el catalogo.';
+    }
     return e;
   }
 
@@ -196,7 +217,7 @@ export class CapturaComponent implements OnInit {
     if (Object.keys(errs).length) { this.toast.show('Revisa los campos marcados', 'error'); return; }
 
     const data = {
-      cant_kg: this.cant().trim(), tipo_merma: this.tipo(), lote: this.lote().trim(), linea_prod: this.linea(),
+      cant_kg: this.cant().trim(), tipo_merma: this.tipo(), lote: this.lote().trim().toUpperCase(), linea_prod: this.linea(),
       id_variedad: this.idVariedad(), id_caracteristica: this.idCaracteristica(),
     };
     const key = this.editKey();

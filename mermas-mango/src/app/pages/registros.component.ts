@@ -25,7 +25,7 @@ const PAGE_SIZE = 20;
     </div>
 
     <form class="filters card" (ngSubmit)="filtrar()">
-      <div class="field"><label for="f_lote">LOTE</label><input id="f_lote" name="lote" [(ngModel)]="fLote" placeholder="Todos" autocomplete="off" /></div>
+      <div class="field"><label for="f_lote">LOTE</label><input id="f_lote" name="lote" [(ngModel)]="fLote" placeholder="Todos" autocomplete="off" spellcheck="false" autocapitalize="characters" /></div>
       <div class="field"><label for="f_linea">LINEA</label><input id="f_linea" name="linea" [(ngModel)]="fLinea" placeholder="Todas" autocomplete="off" /></div>
       <div class="field">
         <label for="f_tipo">TIPO</label>
@@ -139,7 +139,7 @@ export class RegistrosComponent implements OnInit {
   private async cargar(refresh: boolean) {
     if (refresh) { this.loading.set(true); await this.api.refresh(); }
     const res = await this.api.query({
-      lote: this.fLote.trim(), linea_prod: this.fLinea.trim(), tipo_merma: this.fTipo,
+      lote: this.fLote.trim().toUpperCase(), linea_prod: this.fLinea.trim(), tipo_merma: this.fTipo,
       desde: this.fDesde || undefined, hasta: this.fHasta || undefined, skip: 0, limit: 1000000,
     });
     if (this.page() > 0 && this.page() * PAGE_SIZE >= res.items.length) this.page.set(0);
