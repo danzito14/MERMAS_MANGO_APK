@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { adminGuard, authGuard, createGuard, modifyGuard } from './core/guards';
+import { adminGuard, authGuard, catalogosGuard, createGuard, modifyGuard } from './core/guards';
 
 export const routes: Routes = [
   {
@@ -18,6 +18,8 @@ export const routes: Routes = [
       { path: 'informe', loadComponent: () => import('./pages/informe.component').then((m) => m.InformeComponent) },
       { path: 'reporte', loadComponent: () => import('./pages/reporte.component').then((m) => m.ReporteComponent) },
       { path: 'usuarios', canActivate: [adminGuard], loadComponent: () => import('./pages/usuarios.component').then((m) => m.UsuariosComponent) },
+      { path: 'catalogos', pathMatch: 'full', redirectTo: 'catalogos/variedades' },
+      { path: 'catalogos/:tipo', canActivate: [catalogosGuard], loadComponent: () => import('./pages/catalogos.component').then((m) => m.CatalogosComponent) },
       { path: 'ajustes', loadComponent: () => import('./pages/ajustes.component').then((m) => m.AjustesComponent) },
       { path: '', pathMatch: 'full', redirectTo: 'captura' },
     ],

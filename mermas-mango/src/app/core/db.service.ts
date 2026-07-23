@@ -104,6 +104,10 @@ export class DbService {
                     fecha_hora: row.fecha_hora,
                     id_usuario: row.id_usuario ?? null,
                     registrado_por: row.registrado_por ?? null,
+                    id_variedad: row.id_variedad ?? null,
+                    variedad: row.variedad ?? null,
+                    id_caracteristica: row.id_caracteristica ?? null,
+                    caracteristica: row.caracteristica ?? null,
                   } as LocalRegistro);
                 });
               };

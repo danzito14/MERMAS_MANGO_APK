@@ -47,6 +47,8 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
               <tr>
                 <th>Lote</th>
                 <th>Lineas</th>
+                <th>Variedades</th>
+                <th>Caracteristicas</th>
                 <th class="num">Aprovechable (lb)</th>
                 <th class="num">No aprovechable (lb)</th>
                 <th class="num">Total rezaga (lb)</th>
@@ -58,6 +60,8 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
                 <tr>
                   <td>{{ f.lote }}</td>
                   <td>{{ (f.lineas || []).join(', ') || '-' }}</td>
+                  <td>{{ (f.variedades || []).join(', ') || '-' }}</td>
+                  <td>{{ (f.caracteristicas || []).join(', ') || '-' }}</td>
                   <td class="num">{{ kg(f.rezaga_aprovechable) }}</td>
                   <td class="num">{{ kg(f.rezaga_no_aprovechable) }}</td>
                   <td class="num strong">{{ kg(f.total_rezaga) }}</td>
@@ -68,6 +72,8 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
             <tfoot>
               <tr>
                 <td>TOTAL</td>
+                <td></td>
+                <td></td>
                 <td></td>
                 <td class="num">{{ kg(d.total_aprovechable) }}</td>
                 <td class="num">{{ kg(d.total_no_aprovechable) }}</td>

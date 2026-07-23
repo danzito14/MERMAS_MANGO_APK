@@ -1,6 +1,6 @@
 /* Servidor MOCK de la API de Mermas Mango (solo para desarrollo/pruebas del front).
    NO es el backend real: guarda todo en memoria y no valida firmas JWT.
-   Implementa: /auth/register, /auth/login (form-urlencoded), /auth/me y /mermas.
+   Implementa: /auth/register, /auth/login (form-urlencoded), /auth/me, /mermas, /variedades y /caracteristicas.
    Uso: node scripts/mock-api.mjs   (escucha en http://127.0.0.1:8000)
 */
 import http from "node:http";
@@ -12,6 +12,18 @@ function addUser(username, password, rol) { userSeq++; users.set(username, { id_
 addUser("admin", "admin123", "admin"); // admin inicial (como el .env)
 let seq = 0;
 const registros = [];             // registros de merma
+
+// Catalogos editables (/variedades y /caracteristicas). Lectura: cualquiera; escritura: solo admin.
+let catSeq = 0;
+const catalogos = { variedades: [], caracteristicas: [] };
+function addCat(tipo, nombre) { catSeq++; const it = { id: catSeq, nombre, activo: true }; catalogos[tipo].push(it); return it; }
+["KEITT", "KENT", "TOMMY", "HADEN"].forEach((n) => addCat("variedades", n));
+["Sobremaduro", "Maduro", "Verde", "Aguado"].forEach((n) => addCat("caracteristicas", n));
+function catNombre(tipo, id) {
+  if (id == null) return null;
+  const it = catalogos[tipo].find((x) => x.id === Number(id));
+  return it ? it.nombre : null;
+}
 
 function b64url(obj) {
   return Buffer.from(JSON.stringify(obj)).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -63,14 +75,16 @@ function buildReporte(registros, desde, hasta) {
   const map = {};
   let tA = 0, tC = 0, tN = 0;
   src.forEach((r) => {
-    const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0, lineas: new Set() });
+    const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0, lineas: new Set(), vars: new Set(), cars: new Set() });
     if (r.linea_prod) g.lineas.add(r.linea_prod);
+    if (r.variedad) g.vars.add(r.variedad);
+    if (r.caracteristica) g.cars.add(r.caracteristica);
     if (r.tipo_merma === "aprovechable") { g.a += +r.cant_kg; tA += +r.cant_kg; } else { g.c += +r.cant_kg; tC += +r.cant_kg; }
     g.n++; tN++;
   });
   const lotes = Object.keys(map).sort().map((k) => {
     const g = map[k];
-    return { lote: g.lote, lineas: Array.from(g.lineas).sort(), rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n };
+    return { lote: g.lote, lineas: Array.from(g.lineas).sort(), variedades: Array.from(g.vars).sort(), caracteristicas: Array.from(g.cars).sort(), rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n };
   });
   return { desde: desde || null, hasta: hasta || null, lotes, total_aprovechable: fmt(tA), total_no_aprovechable: fmt(tC), total_rezaga: fmt(tA + tC), num_registros: tN };
 }
@@ -94,7 +108,7 @@ const server = http.createServer((req, res) => {
       if (users.has(b.username)) return send(res, 400, { detail: "El usuario ya existe." });
       if (String(b.username).length < 3) return send(res, 422, { detail: [{ loc: ["body", "username"], msg: "String should have at least 3 characters" }] });
       if (String(b.password).length < 4) return send(res, 422, { detail: [{ loc: ["body", "password"], msg: "String should have at least 4 characters" }] });
-      const rol = ["admin", "capturista", "reportes"].includes(b.rol) ? b.rol : "reportes";
+      const rol = ["admin", "supervisor", "capturista", "reportes"].includes(b.rol) ? b.rol : "reportes";
       const u = addUser(b.username, b.password, rol);
       return send(res, 201, { id_usuario: u.id_usuario, username: b.username, rol, activo: true });
     }
@@ -140,13 +154,51 @@ const server = http.createServer((req, res) => {
       if (req.method === "DELETE") { users.delete(uname); return send(res, 204, null); }
     }
 
+    // ---- catalogos: /variedades y /caracteristicas ----
+    const cm = path.match(/^\/(variedades|caracteristicas)(?:\/(\d+))?$/);
+    if (cm) {
+      const tipo = cm[1];
+      const id = cm[2] ? +cm[2] : null;
+      const who = readToken(req);
+      if (!who) return send(res, 401, { detail: "No autenticado" });
+      // leer: cualquier autenticado (el capturista necesita los valores para el formulario)
+      if (req.method !== "GET" && !["admin", "supervisor"].includes(who.rol)) return send(res, 403, { detail: "Solo admin o supervisor pueden editar catalogos" });
+
+      if (req.method === "GET" && id === null) return send(res, 200, catalogos[tipo]);
+      if (req.method === "POST" && id === null) {
+        let b = {}; try { b = JSON.parse(raw || "{}"); } catch {}
+        const nombre = String(b.nombre || "").trim();
+        if (!nombre) return send(res, 422, { detail: [{ loc: ["body", "nombre"], msg: "El nombre es obligatorio" }] });
+        if (catalogos[tipo].some((x) => x.nombre.toLowerCase() === nombre.toLowerCase())) return send(res, 400, { detail: "Ya existe con ese nombre." });
+        return send(res, 201, addCat(tipo, nombre));
+      }
+      if (id !== null) {
+        const idx = catalogos[tipo].findIndex((x) => x.id === id);
+        if (idx === -1) return send(res, 404, { detail: "No encontrado." });
+        if (req.method === "GET") return send(res, 200, catalogos[tipo][idx]);
+        if (req.method === "PUT") {
+          let b = {}; try { b = JSON.parse(raw || "{}"); } catch {}
+          if (b.nombre !== undefined) {
+            const nombre = String(b.nombre).trim();
+            if (!nombre) return send(res, 422, { detail: [{ loc: ["body", "nombre"], msg: "El nombre es obligatorio" }] });
+            if (catalogos[tipo].some((x) => x.id !== id && x.nombre.toLowerCase() === nombre.toLowerCase())) return send(res, 400, { detail: "Ya existe con ese nombre." });
+            catalogos[tipo][idx].nombre = nombre;
+          }
+          if (b.activo !== undefined) catalogos[tipo][idx].activo = !!b.activo;
+          return send(res, 200, catalogos[tipo][idx]);
+        }
+        if (req.method === "DELETE") { catalogos[tipo].splice(idx, 1); return send(res, 204, null); }
+      }
+      return send(res, 405, { detail: "Metodo no permitido" });
+    }
+
     // ---- mermas (protegido) ----
     if (path.startsWith("/mermas")) {
       const who = readToken(req);
       if (!who) return send(res, 401, { detail: "No autenticado" });
       // crear: admin + capturista; editar/borrar: solo admin
-      if (req.method === "POST" && !(who.rol === "admin" || who.rol === "capturista")) return send(res, 403, { detail: "Sin permiso para crear" });
-      if ((req.method === "PUT" || req.method === "DELETE") && who.rol !== "admin") return send(res, 403, { detail: "Solo admin puede editar o borrar" });
+      if (req.method === "POST" && !["admin", "supervisor", "capturista"].includes(who.rol)) return send(res, 403, { detail: "Sin permiso para crear" });
+      if ((req.method === "PUT" || req.method === "DELETE") && !["admin", "supervisor"].includes(who.rol)) return send(res, 403, { detail: "Solo admin o supervisor pueden editar o borrar" });
 
       if (path === "/mermas" && req.method === "GET") {
         let out = registros.slice().sort((a, b) => b.id_registro - a.id_registro);
@@ -161,6 +213,10 @@ const server = http.createServer((req, res) => {
         const hasta = url.searchParams.get("hasta");
         if (fecha) out = out.filter((r) => (r.fecha_hora || "").slice(0, 10) === fecha);
         if (desde || hasta) out = out.filter((r) => enRango(r.fecha_hora, desde, hasta));
+        const idv = url.searchParams.get("id_variedad");
+        const idc = url.searchParams.get("id_caracteristica");
+        if (idv) out = out.filter((r) => Number(r.id_variedad) === Number(idv));
+        if (idc) out = out.filter((r) => Number(r.id_caracteristica) === Number(idc));
         const skip = +(url.searchParams.get("skip") || 0);
         const limit = +(url.searchParams.get("limit") || 100);
         return send(res, 200, out.slice(skip, skip + limit));
@@ -200,6 +256,8 @@ const server = http.createServer((req, res) => {
           lote: b.lote, linea_prod: b.linea_prod,
           fecha_hora: b.fecha_hora || new Date().toISOString().slice(0, 19),
           id_usuario: (users.get(who.username) || {}).id_usuario, registrado_por: who.username,
+          id_variedad: b.id_variedad ?? null, variedad: catNombre("variedades", b.id_variedad),
+          id_caracteristica: b.id_caracteristica ?? null, caracteristica: catNombre("caracteristicas", b.id_caracteristica),
         };
         registros.push(rec);
         return send(res, 201, rec);
@@ -214,6 +272,8 @@ const server = http.createServer((req, res) => {
           let b = {}; try { b = JSON.parse(raw || "{}"); } catch {}
           ["tipo_merma", "lote", "linea_prod", "fecha_hora"].forEach((k) => { if (b[k] !== undefined) registros[idx][k] = b[k]; });
           if (b.cant_kg !== undefined) registros[idx].cant_kg = fmt(b.cant_kg);
+          if (b.id_variedad !== undefined) { registros[idx].id_variedad = b.id_variedad ?? null; registros[idx].variedad = catNombre("variedades", b.id_variedad); }
+          if (b.id_caracteristica !== undefined) { registros[idx].id_caracteristica = b.id_caracteristica ?? null; registros[idx].caracteristica = catNombre("caracteristicas", b.id_caracteristica); }
           return send(res, 200, registros[idx]);
         }
         if (req.method === "DELETE") {

@@ -2,8 +2,9 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { CatalogoService } from '../core/catalogo.service';
 import { ToastService } from '../core/toast.service';
-import { ApiError, TipoMerma } from '../core/models';
+import { ApiError, CatalogoItem, TipoMerma } from '../core/models';
 import { numKg } from '../core/util';
 
 type Linea = 'L1' | 'L2' | 'L3' | 'L4';
@@ -54,10 +55,34 @@ const MAX_ENTEROS = 10;
         </div>
       </div>
 
+      @if (variedades().length) {
+        <div class="field">
+          <label>VARIEDAD</label>
+          <div class="segmented segmented--mini" role="group" aria-label="Variedad">
+            <button type="button" class="seg seg--mini" [class.is-active]="idVariedad() === null" (click)="idVariedad.set(null)">Sin especificar</button>
+            @for (v of variedades(); track v.id) {
+              <button type="button" class="seg seg--mini" [class.is-active]="idVariedad() === v.id" (click)="idVariedad.set(v.id)">{{ v.nombre }}</button>
+            }
+          </div>
+        </div>
+      }
+
+      @if (caracteristicas().length) {
+        <div class="field">
+          <label>CARACTERISTICA</label>
+          <div class="segmented segmented--mini" role="group" aria-label="Caracteristica">
+            <button type="button" class="seg seg--mini" [class.is-active]="idCaracteristica() === null" (click)="idCaracteristica.set(null)">Sin especificar</button>
+            @for (c of caracteristicas(); track c.id) {
+              <button type="button" class="seg seg--mini" [class.is-active]="idCaracteristica() === c.id" (click)="idCaracteristica.set(c.id)">{{ c.nombre }}</button>
+            }
+          </div>
+        </div>
+      }
+
       <div class="field">
         <label for="c_cant">CANTIDAD (LIBRAS) <span class="req">*</span></label>
         <input id="c_cant" type="text" inputmode="decimal" [value]="cant()" (input)="onCant($event)" placeholder="0.00" autocomplete="off" [class.is-invalid]="!!err()['cant_kg']" />
-        <small class="hint">No negativos. Hasta 9 enteros y 6 decimales.</small>
+        <small class="hint">No negativos. Hasta 10 enteros y 6 decimales.</small>
         @if (err()['cant_kg']) { <span class="error">{{ err()['cant_kg'] }}</span> }
       </div>
 
@@ -83,6 +108,7 @@ const MAX_ENTEROS = 10;
 })
 export class CapturaComponent implements OnInit {
   private api = inject(ApiService);
+  private cat = inject(CatalogoService);
   private toast = inject(ToastService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -92,12 +118,17 @@ export class CapturaComponent implements OnInit {
   tipo = signal<TipoMerma>('aprovechable');
   lote = signal('');
   cant = signal('');
+  idVariedad = signal<number | null>(null);
+  idCaracteristica = signal<number | null>(null);
+  variedades = signal<CatalogoItem[]>([]);
+  caracteristicas = signal<CatalogoItem[]>([]);
   keep = false;
   err = signal<Record<string, string>>({});
   submitting = signal(false);
   editKey = signal<string | null>(null);
 
   ngOnInit() {
+    this.cargarCatalogos();
     const key = this.route.snapshot.paramMap.get('key');
     if (key) {
       this.editKey.set(key);
@@ -107,8 +138,23 @@ export class CapturaComponent implements OnInit {
         this.tipo.set(r.tipo_merma === 'cascara_hueso' ? 'cascara_hueso' : 'aprovechable');
         this.lote.set(String(r.lote || ''));
         this.cant.set(numKg(r.cant_kg));
+        this.idVariedad.set(r.id_variedad ?? null);
+        this.idCaracteristica.set(r.id_caracteristica ?? null);
+        this.aplicarVisibles();   // el catalogo pudo cargar antes o despues del prefill
       });
     }
+  }
+
+  /** Solo los activos; si estas editando, deja visible el valor guardado aunque ya se haya desactivado. */
+  private async cargarCatalogos() {
+    try { await this.cat.cargarTodos(); } catch { /* usa lo que haya en cache */ }
+    this.aplicarVisibles();
+  }
+
+  private aplicarVisibles() {
+    const vis = (items: CatalogoItem[], sel: number | null) => items.filter((x) => x.activo || x.id === sel);
+    this.variedades.set(vis(this.cat.variedades(), this.idVariedad()));
+    this.caracteristicas.set(vis(this.cat.caracteristicas(), this.idCaracteristica()));
   }
 
   onLote(v: string) { this.lote.set(v || ''); }
@@ -149,7 +195,10 @@ export class CapturaComponent implements OnInit {
     this.err.set(errs);
     if (Object.keys(errs).length) { this.toast.show('Revisa los campos marcados', 'error'); return; }
 
-    const data = { cant_kg: this.cant().trim(), tipo_merma: this.tipo(), lote: this.lote().trim(), linea_prod: this.linea() };
+    const data = {
+      cant_kg: this.cant().trim(), tipo_merma: this.tipo(), lote: this.lote().trim(), linea_prod: this.linea(),
+      id_variedad: this.idVariedad(), id_caracteristica: this.idCaracteristica(),
+    };
     const key = this.editKey();
     this.submitting.set(true);
     try {
@@ -157,7 +206,10 @@ export class CapturaComponent implements OnInit {
       this.toast.show(res.queued ? 'Guardado sin conexion (se sincronizara)' : (key ? 'Registro actualizado' : 'Merma registrada'), res.queued ? 'info' : 'ok');
       if (key) { this.router.navigateByUrl('/registros'); return; }
       this.cant.set('');
-      if (!this.keep) { this.linea.set('L1'); this.tipo.set('aprovechable'); this.lote.set(''); }
+      if (!this.keep) {
+        this.linea.set('L1'); this.tipo.set('aprovechable'); this.lote.set('');
+        this.idVariedad.set(null); this.idCaracteristica.set(null);
+      }
     } catch (e) {
       const err = e as ApiError;
       if (err?.status === 422 && Array.isArray(err.detail)) {

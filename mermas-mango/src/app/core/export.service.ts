@@ -25,13 +25,14 @@ export class ExportService {
     L.push(['Rango', this.cell((r.desde || 'inicio') + ' a ' + (r.hasta || 'hoy'))].join(','));
     L.push(['Generado', this.cell(formatFecha(new Date().toISOString()))].join(','));
     L.push('');
-    L.push(['Lote', 'Lineas', 'Rezaga aprovechable (lb)', 'Rezaga no aprovechable (lb)', 'Total rezaga (lb)', 'Registros'].join(','));
+    L.push(['Lote', 'Lineas', 'Variedades', 'Caracteristicas', 'Rezaga aprovechable (lb)', 'Rezaga no aprovechable (lb)', 'Total rezaga (lb)', 'Registros'].join(','));
     r.lotes.forEach((f) => L.push([
       this.cell(f.lote), this.cell((f.lineas || []).join(' / ')),
+      this.cell((f.variedades || []).join(' / ')), this.cell((f.caracteristicas || []).join(' / ')),
       this.cell(numKg(f.rezaga_aprovechable)), this.cell(numKg(f.rezaga_no_aprovechable)),
       this.cell(numKg(f.total_rezaga)), this.cell(f.num_registros),
     ].join(',')));
-    L.push(['TOTAL', '', this.cell(numKg(r.total_aprovechable)), this.cell(numKg(r.total_no_aprovechable)), this.cell(numKg(r.total_rezaga)), this.cell(r.num_registros)].join(','));
+    L.push(['TOTAL', '', '', '', this.cell(numKg(r.total_aprovechable)), this.cell(numKg(r.total_no_aprovechable)), this.cell(numKg(r.total_rezaga)), this.cell(r.num_registros)].join(','));
     const rango = (r.desde || 'inicio') + '_a_' + (r.hasta || 'hoy');
     await this.saveCsv(`reporte-lotes-${rango}.csv`, '﻿' + L.join(nl));
   }
@@ -55,13 +56,15 @@ export class ExportService {
     L.push(['Total general', this.cell(numKg(r.total_general)), this.cell(r.num_registros)].join(','));
     L.push('');
     L.push('Detalle');
-    L.push(['Hora', 'Lote', 'Linea', 'Tipo', 'Cantidad (lb)', 'Registro'].join(','));
+    L.push(['Hora', 'Lote', 'Linea', 'Variedad', 'Caracteristica', 'Tipo', 'Cantidad (lb)', 'Registro'].join(','));
     registros
       .slice()
       .sort((a, b) => (a.fecha_hora || '').localeCompare(b.fecha_hora || ''))
       .forEach((x) => L.push([
         this.cell((x.fecha_hora || '').slice(11, 16)),
-        this.cell(x.lote), this.cell(x.linea_prod), this.cell(tipoLabel(x.tipo_merma)),
+        this.cell(x.lote), this.cell(x.linea_prod),
+        this.cell(x.variedad || ''), this.cell(x.caracteristica || ''),
+        this.cell(tipoLabel(x.tipo_merma)),
         this.cell(numKg(x.cant_kg)), this.cell(x.registrado_por || ''),
       ].join(',')));
     return '﻿' + L.join(nl); // BOM para Excel

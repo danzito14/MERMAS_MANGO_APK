@@ -37,6 +37,7 @@ import { ApiError, Rol, UsuarioOut } from '../core/models';
         <select id="u_rol" name="rol" [(ngModel)]="uRol">
           <option value="capturista">Capturista (registra y consulta)</option>
           <option value="reportes">Reportes (solo consulta)</option>
+          <option value="supervisor">Supervisor (todo menos usuarios)</option>
           <option value="admin">Administrador (control total)</option>
         </select>
       </div>
@@ -93,6 +94,7 @@ import { ApiError, Rol, UsuarioOut } from '../core/models';
             <select name="er" [(ngModel)]="eRol">
               <option value="capturista">Capturista</option>
               <option value="reportes">Reportes</option>
+              <option value="supervisor">Supervisor</option>
               <option value="admin">Administrador</option>
             </select>
           </div>

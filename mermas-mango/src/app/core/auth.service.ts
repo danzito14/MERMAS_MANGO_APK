@@ -8,11 +8,13 @@ const TKEY = 'mm_token';
 const UKEY = 'mm_user';
 const RKEY = 'mm_role';
 
-interface Perm { create: boolean; modify: boolean; users: boolean; }
+interface Perm { create: boolean; modify: boolean; users: boolean; catalogos: boolean; }
+// catalogos: crear/editar/eliminar valores. Leerlos lo puede hacer cualquier autenticado.
 const PERM: Record<string, Perm> = {
-  admin: { create: true, modify: true, users: true },       // crea, edita/borra, gestiona usuarios
-  capturista: { create: true, modify: false, users: false }, // solo crea
-  reportes: { create: false, modify: false, users: false },  // solo lectura
+  admin: { create: true, modify: true, users: true, catalogos: true },          // control total
+  supervisor: { create: true, modify: true, users: false, catalogos: true },    // admin sin usuarios
+  capturista: { create: true, modify: false, users: false, catalogos: false },  // solo captura
+  reportes: { create: false, modify: false, users: false, catalogos: false },   // solo lectura
 };
 
 @Injectable({ providedIn: 'root' })
@@ -25,8 +27,9 @@ export class AuthService {
   readonly canCreate = computed(() => this.perms().create);   // crear merma (admin, capturista)
   readonly canModify = computed(() => this.perms().modify);   // editar/borrar merma (solo admin)
   readonly canUsers = computed(() => this.perms().users);     // gestionar usuarios (solo admin)
+  readonly canCatalogos = computed(() => this.perms().catalogos); // editar catalogos (solo admin)
 
-  private perms(): Perm { return PERM[this.role()] || { create: false, modify: false, users: false }; }
+  private perms(): Perm { return PERM[this.role()] || { create: false, modify: false, users: false, catalogos: false }; }
 
   // ---- almacenamiento ----
   getToken(): string { try { return localStorage.getItem(TKEY) || ''; } catch { return ''; } }
@@ -66,7 +69,10 @@ export class AuthService {
   }
 
   roleLabel(r: Rol = this.role()): string {
-    return r === 'admin' ? 'Administrador' : r === 'reportes' ? 'Reportes' : r === 'capturista' ? 'Capturista' : '';
+    const L: Record<string, string> = {
+      admin: 'Administrador', supervisor: 'Supervisor', capturista: 'Capturista', reportes: 'Reportes',
+    };
+    return L[r] || '';
   }
 
   // ---- llamadas ----

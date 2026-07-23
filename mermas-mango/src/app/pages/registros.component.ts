@@ -69,6 +69,8 @@ const PAGE_SIZE = 20;
                 <span><i class="fa-solid fa-box" aria-hidden="true"></i>{{ r.lote }}</span>
                 <span><i class="fa-solid fa-industry" aria-hidden="true"></i>{{ r.linea_prod }}</span>
                 <span><i class="fa-solid fa-clock" aria-hidden="true"></i>{{ fecha(r.fecha_hora) }}</span>
+                @if (r.variedad) { <span class="meta-cat"><i class="fa-solid fa-seedling" aria-hidden="true"></i>{{ r.variedad }}</span> }
+                @if (r.caracteristica) { <span class="meta-cat"><i class="fa-solid fa-tags" aria-hidden="true"></i>{{ r.caracteristica }}</span> }
                 @if (r.registrado_por) { <span><i class="fa-solid fa-user" aria-hidden="true"></i>{{ r.registrado_por }}</span> }
               </div>
             </div>

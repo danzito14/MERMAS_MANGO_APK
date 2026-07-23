@@ -1,5 +1,15 @@
 export type TipoMerma = 'aprovechable' | 'cascara_hueso';
-export type Rol = 'admin' | 'capturista' | 'reportes' | '';
+export type Rol = 'admin' | 'supervisor' | 'capturista' | 'reportes' | '';
+
+/** Catalogos editables del backend: /variedades y /caracteristicas. */
+export type CatalogoTipo = 'variedades' | 'caracteristicas';
+
+/** Item de catalogo ya normalizado (la API puede usar id_variedad / id_caracteristica). */
+export interface CatalogoItem {
+  id: number;
+  nombre: string;
+  activo: boolean;
+}
 
 /** Registro tal como lo devuelve la API. */
 export interface RegistroMermaOut {
@@ -11,6 +21,10 @@ export interface RegistroMermaOut {
   fecha_hora: string;       // ISO 8601
   id_usuario?: number | null;
   registrado_por?: string | null;  // username de quien registro
+  id_variedad?: number | null;
+  variedad?: string | null;
+  id_caracteristica?: number | null;
+  caracteristica?: string | null;
 }
 
 /** Registro guardado en la cache local (IndexedDB). */
@@ -27,6 +41,10 @@ export interface LocalRegistro {
   fecha_hora: string;
   id_usuario?: number | null;
   registrado_por?: string | null;
+  id_variedad?: number | null;
+  variedad?: string | null;
+  id_caracteristica?: number | null;
+  caracteristica?: string | null;
 }
 
 /** Entrada de la cola de cambios pendientes de enviar. */
@@ -52,6 +70,8 @@ export interface InformeDia {
 export interface ReporteLoteFila {
   lote: string;
   lineas?: string[];          // lineas de produccion de donde viene ese lote
+  variedades?: string[];
+  caracteristicas?: string[];
   rezaga_aprovechable: string;
   rezaga_no_aprovechable: string;
   total_rezaga: string;
@@ -82,6 +102,8 @@ export interface MermaInput {
   lote: string;
   linea_prod: string;
   fecha_hora?: string;
+  id_variedad?: number | null;
+  id_caracteristica?: number | null;
 }
 
 /** Forma uniforme de error usada en toda la app. */

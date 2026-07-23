@@ -418,6 +418,7 @@ input.is-invalid { border-color: var(--red); box-shadow: 0 0 0 3px rgba(220,53,6
 .rolebadge--admin { background: #eae6fb; color: #5b3fb0; }
 .rolebadge--reportes { background: var(--blue-soft); color: #1e558f; }
 .rolebadge--capturista { background: var(--green-soft); color: var(--green-dark); }
+.rolebadge--supervisor { background: var(--amber-soft); color: #8a5f13; }
 
 .navitem--logout { color: var(--red); }
 .navitem--logout i { color: var(--red); }
@@ -493,3 +494,16 @@ input.is-invalid { border-color: var(--red); box-shadow: 0 0 0 3px rgba(220,53,6
   .stat { padding: 13px 14px; }
   .stat__icon { display: none; }
 }
+
+/* ===== Captura: selectores compactos de catalogo (variedad / caracteristica) ===== */
+/* Se ven como el control de tipo de merma pero en chico, para no cargar la pantalla. */
+.segmented--mini { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg--mini {
+  height: 34px; padding: 0 12px; border-radius: 999px;
+  font-size: .84rem; font-weight: 600;
+}
+.seg--mini i { font-size: .8rem; }
+.form--captura .field label + .segmented--mini { margin-top: 2px; }
+
+/* ===== Registros: variedad / caracteristica en la linea de meta ===== */
+.item__meta .meta-cat { color: #6b7680; }

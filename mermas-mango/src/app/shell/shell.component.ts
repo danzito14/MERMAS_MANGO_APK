@@ -4,6 +4,7 @@ import { AuthService } from '../core/auth.service';
 import { ApiService } from '../core/api.service';
 import { NetworkService } from '../core/network.service';
 import { ToastService } from '../core/toast.service';
+import { CatalogoService } from '../core/catalogo.service';
 
 @Component({
   selector: 'app-shell',
@@ -44,6 +45,9 @@ import { ToastService } from '../core/toast.service';
         <a class="navitem" routerLink="/registros" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-list-ul" aria-hidden="true"></i><span>Registros</span></a>
         <a class="navitem" routerLink="/informe" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-chart-column" aria-hidden="true"></i><span>Informe diario</span></a>
         <a class="navitem" routerLink="/reporte" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-table" aria-hidden="true"></i><span>Reporte por lote</span></a>
+        @if (auth.canCatalogos()) {
+          <a class="navitem" routerLink="/catalogos" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-seedling" aria-hidden="true"></i><span>Catalogos</span></a>
+        }
         @if (auth.canUsers()) {
           <a class="navitem" routerLink="/usuarios" routerLinkActive="is-active" (click)="toggleMenu(false)"><i class="fa-solid fa-users-gear" aria-hidden="true"></i><span>Usuarios</span></a>
         }
@@ -73,6 +77,7 @@ export class ShellComponent implements OnInit {
   auth = inject(AuthService);
   net = inject(NetworkService);
   api = inject(ApiService);
+  private cat = inject(CatalogoService);
   private toast = inject(ToastService);
   private router = inject(Router);
 
@@ -88,6 +93,7 @@ export class ShellComponent implements OnInit {
         this.toast.show('Conexion restablecida', 'ok');
         this.api.refresh().then(() => this.api.updatePending());
         this.auth.refreshMe().catch(() => {});
+        this.cat.cargarTodos().catch(() => {});
       } else if (!on && this.prevOnline === true) {
         this.toast.show('Trabajando sin conexion', 'info');
       }
@@ -98,6 +104,7 @@ export class ShellComponent implements OnInit {
   ngOnInit() {
     this.api.updatePending();
     this.api.refresh().then(() => this.api.updatePending());
+    this.cat.cargarTodos().catch(() => { /* offline: usa la cache local */ });
     if (this.net.online()) this.auth.refreshMe().catch(() => { /* el interceptor maneja 401 */ });
   }
 

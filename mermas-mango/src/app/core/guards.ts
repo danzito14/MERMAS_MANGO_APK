@@ -28,3 +28,10 @@ export const adminGuard: CanActivateFn = () => {
   const router = inject(Router);
   return auth.canUsers() ? true : router.parseUrl('/panel');
 };
+
+/** Edicion de catalogos (variedades / caracteristicas): hoy solo admin. */
+export const catalogosGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  return auth.canCatalogos() ? true : router.parseUrl('/panel');
+};
