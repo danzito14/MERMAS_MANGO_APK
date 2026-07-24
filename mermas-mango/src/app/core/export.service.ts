@@ -3,17 +3,17 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { ApiService } from './api.service';
-import { InformeDia, LocalRegistro, ReporteLote } from './models';
-import { numKg, formatFecha, tipoLabel } from './util';
+import { InformeDia, LocalRegistro, ReporteLote, Unidad } from './models';
+import { numKg, formatFecha, tipoLabel, aUnidad } from './util';
 
 /** Genera y descarga/comparte el informe de un dia como CSV. */
 @Injectable({ providedIn: 'root' })
 export class ExportService {
   private api = inject(ApiService);
 
-  async informeDiaCsv(r: InformeDia): Promise<void> {
+  async informeDiaCsv(r: InformeDia, unidad: Unidad = 'kg'): Promise<void> {
     const registros = (await this.api.query({ fecha: r.fecha, skip: 0, limit: 1000000 })).items;
-    const csv = this.buildCsv(r, registros);
+    const csv = this.buildCsv(r, registros, r.unidad || unidad);
     await this.saveCsv(`informe-${r.fecha}.csv`, csv);
   }
 
@@ -21,20 +21,21 @@ export class ExportService {
   async reporteLoteCsv(r: ReporteLote): Promise<void> {
     const nl = '\r\n';
     const L: string[] = [];
-    L.push('Reporte de merma por lote');
+    const u = r.unidad || 'kg';
+    L.push('Reporte de merma por lote y linea');
     L.push(['Rango', this.cell((r.desde || 'inicio') + ' a ' + (r.hasta || 'hoy'))].join(','));
     L.push(['Generado', this.cell(formatFecha(new Date().toISOString()))].join(','));
     L.push('');
-    L.push(['Lote', 'Lineas', 'Variedades', 'Caracteristicas', 'Rezaga aprovechable (lb)', 'Rezaga no aprovechable (lb)', 'Total rezaga (lb)', 'Registros'].join(','));
+    L.push(['Lote', 'Linea', 'Variedades', 'Caracteristicas', `Rezaga aprovechable (${u})`, `Rezaga no aprovechable (${u})`, `Total rezaga (${u})`, 'Registros'].join(','));
     r.lotes.forEach((f) => L.push([
-      this.cell(f.lote), this.cell((f.lineas || []).join(' / ')),
+      this.cell(f.lote), this.cell(f.linea_prod || ''),
       this.cell((f.variedades || []).join(' / ')), this.cell((f.caracteristicas || []).join(' / ')),
       this.cell(numKg(f.rezaga_aprovechable)), this.cell(numKg(f.rezaga_no_aprovechable)),
       this.cell(numKg(f.total_rezaga)), this.cell(f.num_registros),
     ].join(',')));
     L.push(['TOTAL', '', '', '', this.cell(numKg(r.total_aprovechable)), this.cell(numKg(r.total_no_aprovechable)), this.cell(numKg(r.total_rezaga)), this.cell(r.num_registros)].join(','));
     const rango = (r.desde || 'inicio') + '_a_' + (r.hasta || 'hoy');
-    await this.saveCsv(`reporte-lotes-${rango}.csv`, '﻿' + L.join(nl));
+    await this.saveCsv(`reporte-lotes-${u}-${rango}.csv`, '﻿' + L.join(nl));
   }
 
   private cell(v: any): string {
@@ -42,7 +43,7 @@ export class ExportService {
     return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
-  private buildCsv(r: InformeDia, registros: LocalRegistro[]): string {
+  private buildCsv(r: InformeDia, registros: LocalRegistro[], u: Unidad = 'kg'): string {
     const nl = '\r\n';
     const L: string[] = [];
     L.push('Informe de merma por dia');
@@ -50,13 +51,13 @@ export class ExportService {
     L.push(['Generado', this.cell(formatFecha(new Date().toISOString()))].join(','));
     L.push('');
     L.push('Resumen');
-    L.push(['Tipo', 'Total (lb)', 'Registros'].join(','));
+    L.push(['Tipo', `Total (${u})`, 'Registros'].join(','));
     L.push(['Aprovechable', this.cell(numKg(r.total_aprovechable)), ''].join(','));
     L.push(['Cascara / Hueso', this.cell(numKg(r.total_cascara_hueso)), ''].join(','));
     L.push(['Total general', this.cell(numKg(r.total_general)), this.cell(r.num_registros)].join(','));
     L.push('');
     L.push('Detalle');
-    L.push(['Hora', 'Lote', 'Linea', 'Variedad', 'Caracteristica', 'Tipo', 'Cantidad (lb)', 'Registro'].join(','));
+    L.push(['Hora', 'Lote', 'Linea', 'Variedad', 'Caracteristica', 'Tipo', `Cantidad (${u})`, 'Registro'].join(','));
     registros
       .slice()
       .sort((a, b) => (a.fecha_hora || '').localeCompare(b.fecha_hora || ''))
@@ -65,7 +66,7 @@ export class ExportService {
         this.cell(x.lote), this.cell(x.linea_prod),
         this.cell(x.variedad || ''), this.cell(x.caracteristica || ''),
         this.cell(tipoLabel(x.tipo_merma)),
-        this.cell(numKg(x.cant_kg)), this.cell(x.registrado_por || ''),
+        this.cell(numKg(aUnidad(Number(x.cant_kg) || 0, u))), this.cell(x.registrado_por || ''),
       ].join(',')));
     return '﻿' + L.join(nl); // BOM para Excel
   }

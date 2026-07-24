@@ -6,7 +6,8 @@ import { DbService } from './db.service';
 import { NetworkService } from './network.service';
 import { AuthService } from './auth.service';
 import { CatalogoService } from './catalogo.service';
-import { ApiError, InformeDia, LocalRegistro, MermaInput, OutboxEntry, RegistroMermaOut, ReporteLote } from './models';
+import { ApiError, InformeDia, LocalRegistro, MermaInput, OutboxEntry, RegistroMermaOut, ReporteLote, Unidad } from './models';
+import { aUnidad } from './util';
 
 export interface QueryParams { lote?: string; linea_prod?: string; tipo_merma?: string; fecha?: string; desde?: string; hasta?: string; id_variedad?: number; id_caracteristica?: number; skip?: number; limit?: number; }
 
@@ -68,14 +69,24 @@ export class ApiService {
     return v.length === 16 ? v + ':00' : v;
   }
   private normHasta(v: string): string {
-    if (!v.includes('T')) return v + 'T23:59:59';
-    return v.length === 16 ? v + ':59' : v;
+    if (!v.includes('T')) return v + 'T23:59:59';   // fecha sola: dia completo, igual que el backend
+    return v.length === 16 ? v + ':00' : v;         // hora elegida: exacta, sin extenderla
   }
   private enRango(fechaHora: string, desde?: string, hasta?: string): boolean {
     const f = fechaHora || '';
     if (desde && f < this.normDesde(desde)) return false;
     if (hasta && f > this.normHasta(hasta)) return false;
     return true;
+  }
+
+  // Una sola regla para /mermas, /mermas/informe y /mermas/reporte: los tres aceptan
+  // fecha sola (el backend la extiende al dia completo) o fecha con hora (se respeta exacta).
+  // Se manda tal cual: extender la hora elegida romperia los cortes por turno
+  // (un "hasta 14:00" convertido a 14:00:59 contaria ese minuto en los dos turnos).
+  private paramRango(v: string | undefined): string | undefined {
+    if (!v) return undefined;
+    if (!v.includes('T')) return v;              // fecha sola
+    return v.length === 16 ? v + ':00' : v;      // solo completa segundos si el navegador los omite
   }
 
   /** Nombre del catalogo para mostrar en registros creados sin conexion. */
@@ -199,89 +210,97 @@ export class ApiService {
   }
 
   // ---------- informe (agrupado por dia) ----------
-  async informe(desde?: string, hasta?: string): Promise<{ items: InformeDia[]; offline: boolean }> {
+  async informe(desde?: string, hasta?: string, unidad: Unidad = 'kg'): Promise<{ items: InformeDia[]; offline: boolean }> {
     if (this.online()) {
       try {
         let params = new HttpParams();
-        if (desde) params = params.set('desde', desde);
-        if (hasta) params = params.set('hasta', hasta);
+        const d = this.paramRango(desde), h = this.paramRango(hasta);
+        if (d) params = params.set('desde', d);
+        if (h) params = params.set('hasta', h);
+        if (unidad !== 'kg') params = params.set('unidad', unidad);
         const data = await this.call(firstValueFrom(this.http.get<InformeDia[]>(this.base() + '/mermas/informe', { params })));
         return { items: data || [], offline: false };
       } catch (e) {
         if (!(e as ApiError).network) throw e;
       }
     }
-    return { items: await this.computeInformeLocal(desde, hasta), offline: true };
+    return { items: await this.computeInformeLocal(desde, hasta, unidad), offline: true };
   }
 
-  private async computeInformeLocal(desde?: string, hasta?: string): Promise<InformeDia[]> {
+  private async computeInformeLocal(desde?: string, hasta?: string, unidad: Unidad = 'kg'): Promise<InformeDia[]> {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
     if (desde || hasta) all = all.filter((r) => this.enRango(r.fecha_hora, desde, hasta));
     const map: Record<string, { fecha: string; a: number; c: number; n: number }> = {};
     all.forEach((r) => {
       const dia = (r.fecha_hora || '').slice(0, 10);
       const g = map[dia] || (map[dia] = { fecha: dia, a: 0, c: 0, n: 0 });
-      const kg = Number(r.cant_kg) || 0;
+      const kg = aUnidad(Number(r.cant_kg) || 0, unidad);
       if (r.tipo_merma === 'aprovechable') g.a += kg; else g.c += kg;
       g.n++;
     });
     return Object.keys(map).sort().reverse().map((k) => {
       const g = map[k];
-      return { fecha: g.fecha, total_aprovechable: g.a.toFixed(6), total_cascara_hueso: g.c.toFixed(6), total_general: (g.a + g.c).toFixed(6), num_registros: g.n };
+      return { fecha: g.fecha, unidad, total_aprovechable: g.a.toFixed(6), total_cascara_hueso: g.c.toFixed(6), total_general: (g.a + g.c).toFixed(6), num_registros: g.n };
     });
   }
 
   // ---------- reporte por lote (estilo Excel) ----------
-  async reporte(desde?: string, hasta?: string): Promise<{ data: ReporteLote; offline: boolean }> {
+  async reporte(desde?: string, hasta?: string, unidad: Unidad = 'kg'): Promise<{ data: ReporteLote; offline: boolean }> {
     if (this.online()) {
       try {
         let params = new HttpParams();
-        if (desde) params = params.set('desde', desde);
-        if (hasta) params = params.set('hasta', hasta);
+        const d = this.paramRango(desde), h = this.paramRango(hasta);
+        if (d) params = params.set('desde', d);
+        if (h) params = params.set('hasta', h);
+        if (unidad !== 'kg') params = params.set('unidad', unidad);
         const data = await this.call(firstValueFrom(this.http.get<ReporteLote>(this.base() + '/mermas/reporte', { params })));
-        return { data, offline: false };
+        return { data: { ...data, unidad: data?.unidad || unidad }, offline: false };
       } catch (e) {
         if (!(e as ApiError).network) throw e;
       }
     }
-    return { data: await this.computeReporteLocal(desde, hasta), offline: true };
+    return { data: await this.computeReporteLocal(desde, hasta, unidad), offline: true };
   }
 
   /** Reporte por lote del dia de hoy (endpoint dedicado del backend). */
-  async reporteHoy(): Promise<{ data: ReporteLote; offline: boolean }> {
+  async reporteHoy(unidad: Unidad = 'kg'): Promise<{ data: ReporteLote; offline: boolean }> {
     if (this.online()) {
       try {
-        const data = await this.call(firstValueFrom(this.http.get<ReporteLote>(this.base() + '/mermas/reporte/hoy')));
-        return { data, offline: false };
+        let params = new HttpParams();
+        if (unidad !== 'kg') params = params.set('unidad', unidad);
+        const data = await this.call(firstValueFrom(this.http.get<ReporteLote>(this.base() + '/mermas/reporte/hoy', { params })));
+        return { data: { ...data, unidad: data?.unidad || unidad }, offline: false };
       } catch (e) {
         if (!(e as ApiError).network) throw e;
       }
     }
     const d = new Date();
     const ymd = d.getFullYear() + '-' + this.pad(d.getMonth() + 1) + '-' + this.pad(d.getDate());
-    return { data: await this.computeReporteLocal(ymd, ymd), offline: true };
+    return { data: await this.computeReporteLocal(ymd, ymd, unidad), offline: true };
   }
 
-  private async computeReporteLocal(desde?: string, hasta?: string): Promise<ReporteLote> {
+  /** Mismo criterio que el backend: una fila por lote + linea. */
+  private async computeReporteLocal(desde?: string, hasta?: string, unidad: Unidad = 'kg'): Promise<ReporteLote> {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
     if (desde || hasta) all = all.filter((r) => this.enRango(r.fecha_hora, desde, hasta));
-    const map: Record<string, { lote: string; a: number; c: number; n: number; lineas: Set<string>; vars: Set<string>; cars: Set<string> }> = {};
+    const map: Record<string, { lote: string; linea: string; a: number; c: number; n: number; vars: Set<string>; cars: Set<string> }> = {};
     let tA = 0, tC = 0, tN = 0;
     all.forEach((r) => {
-      const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0, lineas: new Set<string>(), vars: new Set<string>(), cars: new Set<string>() });
-      if (r.linea_prod) g.lineas.add(r.linea_prod);
+      const linea = r.linea_prod || '';
+      const clave = r.lote + '|' + linea;
+      const g = map[clave] || (map[clave] = { lote: r.lote, linea, a: 0, c: 0, n: 0, vars: new Set<string>(), cars: new Set<string>() });
       if (r.variedad) g.vars.add(r.variedad);
       if (r.caracteristica) g.cars.add(r.caracteristica);
-      const kg = Number(r.cant_kg) || 0;
+      const kg = aUnidad(Number(r.cant_kg) || 0, unidad);
       if (r.tipo_merma === 'aprovechable') { g.a += kg; tA += kg; } else { g.c += kg; tC += kg; }
       g.n++; tN++;
     });
     const lotes = Object.keys(map).sort().map((k) => {
       const g = map[k];
-      return { lote: g.lote, lineas: Array.from(g.lineas).sort(), variedades: Array.from(g.vars).sort(), caracteristicas: Array.from(g.cars).sort(), rezaga_aprovechable: g.a.toFixed(6), rezaga_no_aprovechable: g.c.toFixed(6), total_rezaga: (g.a + g.c).toFixed(6), num_registros: g.n };
+      return { lote: g.lote, linea_prod: g.linea, variedades: Array.from(g.vars).sort(), caracteristicas: Array.from(g.cars).sort(), rezaga_aprovechable: g.a.toFixed(6), rezaga_no_aprovechable: g.c.toFixed(6), total_rezaga: (g.a + g.c).toFixed(6), num_registros: g.n };
     });
     return {
-      desde: desde || null, hasta: hasta || null, lotes,
+      desde: desde || null, hasta: hasta || null, unidad, lotes,
       total_aprovechable: tA.toFixed(6), total_no_aprovechable: tC.toFixed(6), total_rezaga: (tA + tC).toFixed(6), num_registros: tN,
     };
   }

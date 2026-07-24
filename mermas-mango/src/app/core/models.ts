@@ -1,6 +1,9 @@
 export type TipoMerma = 'aprovechable' | 'cascara_hueso';
 export type Rol = 'admin' | 'supervisor' | 'capturista' | 'reportes' | '';
 
+/** Unidad de los reportes: el sistema captura y guarda siempre en kg; lb solo convierte al mostrar. */
+export type Unidad = 'kg' | 'lb';
+
 /** Catalogos editables del backend: /variedades y /caracteristicas. */
 export type CatalogoTipo = 'variedades' | 'caracteristicas';
 
@@ -60,16 +63,17 @@ export interface OutboxEntry {
 /** Fila del informe, agrupado por dia (fecha). */
 export interface InformeDia {
   fecha: string;   // YYYY-MM-DD
+  unidad?: Unidad;
   total_aprovechable: string;
   total_cascara_hueso: string;
   total_general: string;
   num_registros: number;
 }
 
-/** Fila del reporte por lote (estilo Excel). */
+/** Fila del reporte, agrupada por lote + linea (un lote en 3 lineas son 3 filas). */
 export interface ReporteLoteFila {
   lote: string;
-  lineas?: string[];          // lineas de produccion de donde viene ese lote
+  linea_prod: string;         // una sola linea por fila (antes era el array "lineas")
   variedades?: string[];
   caracteristicas?: string[];
   rezaga_aprovechable: string;
@@ -82,6 +86,7 @@ export interface ReporteLoteFila {
 export interface ReporteLote {
   desde: string | null;
   hasta: string | null;
+  unidad?: Unidad;            // lo que devolvio el backend ('kg' por defecto)
   lotes: ReporteLoteFila[];
   total_aprovechable: string;
   total_no_aprovechable: string;

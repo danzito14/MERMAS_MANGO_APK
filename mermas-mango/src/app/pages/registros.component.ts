@@ -45,9 +45,9 @@ const PAGE_SIZE = 20;
     </form>
 
     <div class="stats stats--mini">
-      <div class="stat stat--green"><div class="stat__body"><div class="stat__num {{ size(sumAprov()) }}">{{ sumAprov() }}</div><div class="stat__label">Aprovechable (lb)</div></div><span class="stat__icon"><i class="fa-solid fa-leaf" aria-hidden="true"></i></span></div>
-      <div class="stat stat--amber"><div class="stat__body"><div class="stat__num {{ size(sumCasc()) }}">{{ sumCasc() }}</div><div class="stat__label">Cascara/Hueso (lb)</div></div><span class="stat__icon"><i class="fa-solid fa-bone" aria-hidden="true"></i></span></div>
-      <div class="stat stat--strong"><div class="stat__body"><div class="stat__num {{ size(sumTotal()) }}">{{ sumTotal() }}</div><div class="stat__label">Total pagina (lb)</div></div><span class="stat__icon"><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i></span></div>
+      <div class="stat stat--green"><div class="stat__body"><div class="stat__num {{ size(sumAprov()) }}">{{ sumAprov() }}</div><div class="stat__label">Aprovechable (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-leaf" aria-hidden="true"></i></span></div>
+      <div class="stat stat--amber"><div class="stat__body"><div class="stat__num {{ size(sumCasc()) }}">{{ sumCasc() }}</div><div class="stat__label">Cascara/Hueso (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-bone" aria-hidden="true"></i></span></div>
+      <div class="stat stat--strong"><div class="stat__body"><div class="stat__num {{ size(sumTotal()) }}">{{ sumTotal() }}</div><div class="stat__label">Total pagina (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i></span></div>
     </div>
 
     <div class="list">
@@ -61,7 +61,7 @@ const PAGE_SIZE = 20;
             <span class="item__icon"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i></span>
             <div class="item__main">
               <div class="item__top">
-                <span class="item__kg {{ size(kg(r.cant_kg)) }}">{{ kg(r.cant_kg) }} lb</span>
+                <span class="item__kg {{ size(kg(r.cant_kg)) }}">{{ kg(r.cant_kg) }} kg</span>
                 <span class="badge" [class.badge--casc]="r.tipo_merma === 'cascara_hueso'"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i> {{ label(r.tipo_merma) }}</span>
                 @if (r._pending) { <span class="badge badge--pending"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> Pendiente</span> }
               </div>

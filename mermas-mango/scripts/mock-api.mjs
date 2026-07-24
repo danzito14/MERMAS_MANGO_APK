@@ -58,8 +58,13 @@ function send(res, code, body) {
   res.end(data);
 }
 function fmt(n) { return Number(n).toFixed(6); }
+// El sistema guarda siempre kg; lb solo convierte al devolver.
+const LB_POR_KG = 2.20462262185;
+function uni(v) { return v === "lb" ? "lb" : "kg"; }
+function conv(kg, u) { return u === "lb" ? kg * LB_POR_KG : kg; }
 
-// desde/hasta aceptan "YYYY-MM-DD" o "YYYY-MM-DDTHH:MM[:SS]".
+// Regla unificada en los tres endpoints: "YYYY-MM-DD" se extiende al dia completo,
+// "YYYY-MM-DDTHH:MM[:SS]" se respeta exacto (util para cortes por turno).
 function nDesde(v) { return v.includes("T") ? (v.length === 16 ? v + ":00" : v) : v + "T00:00:00"; }
 function nHasta(v) { return v.includes("T") ? (v.length === 16 ? v + ":59" : v) : v + "T23:59:59"; }
 function enRango(f, desde, hasta) {
@@ -70,23 +75,26 @@ function enRango(f, desde, hasta) {
 }
 
 /** Reporte agrupado por lote en un rango (usado por /reporte y /reporte/hoy). */
-function buildReporte(registros, desde, hasta) {
+function buildReporte(registros, desde, hasta, unidad) {
+  const u = uni(unidad);
   const src = registros.filter((r) => enRango(r.fecha_hora, desde, hasta));
   const map = {};
   let tA = 0, tC = 0, tN = 0;
   src.forEach((r) => {
-    const g = map[r.lote] || (map[r.lote] = { lote: r.lote, a: 0, c: 0, n: 0, lineas: new Set(), vars: new Set(), cars: new Set() });
-    if (r.linea_prod) g.lineas.add(r.linea_prod);
+    const linea = r.linea_prod || "";
+    const clave = r.lote + "|" + linea;
+    const g = map[clave] || (map[clave] = { lote: r.lote, linea, a: 0, c: 0, n: 0, vars: new Set(), cars: new Set() });
     if (r.variedad) g.vars.add(r.variedad);
     if (r.caracteristica) g.cars.add(r.caracteristica);
-    if (r.tipo_merma === "aprovechable") { g.a += +r.cant_kg; tA += +r.cant_kg; } else { g.c += +r.cant_kg; tC += +r.cant_kg; }
+    const kg = conv(+r.cant_kg, u);
+    if (r.tipo_merma === "aprovechable") { g.a += kg; tA += kg; } else { g.c += kg; tC += kg; }
     g.n++; tN++;
   });
   const lotes = Object.keys(map).sort().map((k) => {
     const g = map[k];
-    return { lote: g.lote, lineas: Array.from(g.lineas).sort(), variedades: Array.from(g.vars).sort(), caracteristicas: Array.from(g.cars).sort(), rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n };
+    return { lote: g.lote, linea_prod: g.linea, variedades: Array.from(g.vars).sort(), caracteristicas: Array.from(g.cars).sort(), rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n };
   });
-  return { desde: desde || null, hasta: hasta || null, lotes, total_aprovechable: fmt(tA), total_no_aprovechable: fmt(tC), total_rezaga: fmt(tA + tC), num_registros: tN };
+  return { desde: desde || null, hasta: hasta || null, unidad: u, lotes, total_aprovechable: fmt(tA), total_no_aprovechable: fmt(tC), total_rezaga: fmt(tA + tC), num_registros: tN };
 }
 
 const server = http.createServer((req, res) => {
@@ -224,16 +232,18 @@ const server = http.createServer((req, res) => {
       if (path === "/mermas/informe" && req.method === "GET") {
         const desde = url.searchParams.get("desde");
         const hasta = url.searchParams.get("hasta");
+        const u = uni(url.searchParams.get("unidad"));
         const src = registros.filter((r) => enRango(r.fecha_hora, desde, hasta));
         const map = {};
         src.forEach((r) => {
           const dia = (r.fecha_hora || "").slice(0, 10);
           const g = map[dia] || (map[dia] = { fecha: dia, a: 0, c: 0, n: 0 });
-          if (r.tipo_merma === "aprovechable") g.a += +r.cant_kg; else g.c += +r.cant_kg;
+          const kg = conv(+r.cant_kg, u);
+          if (r.tipo_merma === "aprovechable") g.a += kg; else g.c += kg;
           g.n++;
         });
         const rows = Object.values(map).map((g) => ({
-          fecha: g.fecha, total_aprovechable: fmt(g.a), total_cascara_hueso: fmt(g.c),
+          fecha: g.fecha, unidad: u, total_aprovechable: fmt(g.a), total_cascara_hueso: fmt(g.c),
           total_general: fmt(g.a + g.c), num_registros: g.n,
         })).sort((a, b) => b.fecha.localeCompare(a.fecha));
         return send(res, 200, rows);
@@ -241,10 +251,10 @@ const server = http.createServer((req, res) => {
       if (path === "/mermas/reporte/hoy" && req.method === "GET") {
         const d = new Date();
         const ymd = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-        return send(res, 200, buildReporte(registros, ymd, ymd));
+        return send(res, 200, buildReporte(registros, ymd, ymd, url.searchParams.get("unidad")));
       }
       if (path === "/mermas/reporte" && req.method === "GET") {
-        return send(res, 200, buildReporte(registros, url.searchParams.get("desde"), url.searchParams.get("hasta")));
+        return send(res, 200, buildReporte(registros, url.searchParams.get("desde"), url.searchParams.get("hasta"), url.searchParams.get("unidad")));
       }
       if (path === "/mermas" && req.method === "POST") {
         let b = {};

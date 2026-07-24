@@ -1,4 +1,12 @@
-import { TipoMerma } from './models';
+import { TipoMerma, Unidad } from './models';
+
+/** Factor exacto que usa el backend para kg -> lb. */
+export const LB_POR_KG = 2.20462262185;
+
+/** Convierte kg a la unidad pedida (para los calculos locales sin conexion). */
+export function aUnidad(kg: number, unidad: Unidad): number {
+  return unidad === 'lb' ? kg * LB_POR_KG : kg;
+}
 
 export function formatFecha(iso: string): string {
   if (!iso) return '';
@@ -59,16 +67,16 @@ export function hoyYmd(): string {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
-/** Semana actual como valores para inputs datetime-local (lunes 00:00 a domingo 23:59). */
+/** Semana actual para inputs datetime-local con segundos (lunes 00:00:00 a domingo 23:59:59). */
 export function semanaActualDT(): { desde: string; hasta: string } {
   const s = semanaActual();
-  return { desde: s.desde + 'T00:00', hasta: s.hasta + 'T23:59' };
+  return { desde: s.desde + 'T00:00:00', hasta: s.hasta + 'T23:59:59' };
 }
 
-/** Hoy completo como valores para inputs datetime-local. */
+/** Hoy completo para inputs datetime-local con segundos. */
 export function hoyDT(): { desde: string; hasta: string } {
   const d = hoyYmd();
-  return { desde: d + 'T00:00', hasta: d + 'T23:59' };
+  return { desde: d + 'T00:00:00', hasta: d + 'T23:59:59' };
 }
 
 export function tipoLabel(t: TipoMerma | string): string {

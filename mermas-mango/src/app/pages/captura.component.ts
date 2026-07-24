@@ -84,7 +84,7 @@ const MAX_ENTEROS = 10;
       </div>
 
       <div class="field">
-        <label for="c_cant">CANTIDAD (LIBRAS) <span class="req">*</span></label>
+        <label for="c_cant">CANTIDAD (KG) <span class="req">*</span></label>
         <input id="c_cant" type="text" inputmode="decimal" [value]="cant()" (input)="onCant($event)" placeholder="0.00" autocomplete="off" [class.is-invalid]="!!err()['cant_kg']" />
         <small class="hint">No negativos. Hasta 10 enteros y 6 decimales.</small>
         @if (err()['cant_kg']) { <span class="error">{{ err()['cant_kg'] }}</span> }

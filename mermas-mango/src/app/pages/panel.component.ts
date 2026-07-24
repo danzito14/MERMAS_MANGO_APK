@@ -55,7 +55,7 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
 
     <div class="card panel-hoy">
       <div class="panel-hoy__main">
-        <div class="panel-hoy__big {{ size(hoyKg()) }}">{{ hoyKg() }} <small>lb</small></div>
+        <div class="panel-hoy__big {{ size(hoyKg()) }}">{{ hoyKg() }} <small>kg</small></div>
         <div class="panel-hoy__txt">
           <strong>{{ hoyReg() }} {{ hoyReg() === 1 ? 'registro' : 'registros' }}</strong>
           <span class="muted">mermas registradas hoy</span>
@@ -86,7 +86,7 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
         <div class="item" [class.item--casc]="r.tipo_merma === 'cascara_hueso'" [class.item--pending]="r._pending">
           <span class="item__icon"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i></span>
           <div class="item__main">
-            <div class="item__top"><span class="item__kg {{ size(kg(r.cant_kg)) }}">{{ kg(r.cant_kg) }} lb</span>
+            <div class="item__top"><span class="item__kg {{ size(kg(r.cant_kg)) }}">{{ kg(r.cant_kg) }} kg</span>
               <span class="badge" [class.badge--casc]="r.tipo_merma === 'cascara_hueso'"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i> {{ label(r.tipo_merma) }}</span>
               @if (r._pending) { <span class="badge badge--pending"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> Pendiente</span> }
             </div>
@@ -159,9 +159,9 @@ export class PanelComponent implements OnInit {
     this.stats.set([
       { kind: 'blue', icon: 'fa-list-ul', num: String(nReg), label: 'Registros' },
       { kind: 'strong', icon: 'fa-boxes-stacked', num: String(nLotes), label: 'Lotes' },
-      { kind: 'green', icon: 'fa-leaf', num: fmtKg(sumA), label: 'Aprovechable (lb)' },
-      { kind: 'amber', icon: 'fa-bone', num: fmtKg(sumC), label: 'Cascara / Hueso (lb)' },
-      { kind: 'strong', icon: 'fa-scale-balanced', num: fmtKg(total), label: 'Total general (lb)' },
+      { kind: 'green', icon: 'fa-leaf', num: fmtKg(sumA), label: 'Aprovechable (kg)' },
+      { kind: 'amber', icon: 'fa-bone', num: fmtKg(sumC), label: 'Cascara / Hueso (kg)' },
+      { kind: 'strong', icon: 'fa-scale-balanced', num: fmtKg(total), label: 'Total general (kg)' },
     ]);
 
     // Resumen de hoy (siempre del dia actual, independiente del rango)

@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
-import { InformeDia } from '../core/models';
+import { InformeDia, Unidad } from '../core/models';
 import { fmtKg, hoyYmd, semanaActual } from '../core/util';
 
 @Component({
@@ -22,6 +22,13 @@ import { fmtKg, hoyYmd, semanaActual } from '../core/util';
     <form class="filters card" (ngSubmit)="cargar()">
       <div class="field"><label for="i_desde">DESDE</label><input id="i_desde" type="date" name="desde" [(ngModel)]="iDesde" /></div>
       <div class="field"><label for="i_hasta">HASTA</label><input id="i_hasta" type="date" name="hasta" [(ngModel)]="iHasta" /></div>
+      <div class="field">
+        <label>UNIDAD</label>
+        <div class="segmented segmented--mini" role="group" aria-label="Unidad">
+          <button type="button" class="seg seg--mini" [class.is-active]="unidad() === 'kg'" (click)="cambiarUnidad('kg')">Kilogramos</button>
+          <button type="button" class="seg seg--mini" [class.is-active]="unidad() === 'lb'" (click)="cambiarUnidad('lb')">Libras</button>
+        </div>
+      </div>
       <div class="filters__actions">
         <button class="btn btn--primary" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Ver</button>
         <button class="btn btn--ghost" type="button" (click)="hoy()"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i> Hoy</button>
@@ -48,9 +55,9 @@ import { fmtKg, hoyYmd, semanaActual } from '../core/util';
               </div>
             </div>
             <div class="informe__grid">
-              <div class="informe__cell"><div class="k">APROVECHABLE</div><div class="v">{{ kg(r.total_aprovechable) }} lb</div></div>
-              <div class="informe__cell informe__cell--casc"><div class="k">CASCARA / HUESO</div><div class="v">{{ kg(r.total_cascara_hueso) }} lb</div></div>
-              <div class="informe__cell informe__cell--total"><div class="k">TOTAL GENERAL</div><div class="v">{{ kg(r.total_general) }} lb</div></div>
+              <div class="informe__cell"><div class="k">APROVECHABLE</div><div class="v">{{ kg(r.total_aprovechable) }} {{ u(r) }}</div></div>
+              <div class="informe__cell informe__cell--casc"><div class="k">CASCARA / HUESO</div><div class="v">{{ kg(r.total_cascara_hueso) }} {{ u(r) }}</div></div>
+              <div class="informe__cell informe__cell--total"><div class="k">TOTAL GENERAL</div><div class="v">{{ kg(r.total_general) }} {{ u(r) }}</div></div>
             </div>
           </div>
         }
@@ -64,6 +71,7 @@ export class InformeComponent implements OnInit {
   private toast = inject(ToastService);
 
   kg = fmtKg;
+  unidad = signal<Unidad>('kg');
   iDesde = '';
   iHasta = '';
   items = signal<InformeDia[]>([]);
@@ -78,6 +86,15 @@ export class InformeComponent implements OnInit {
     this.cargar();
   }
 
+  /** Etiqueta: la unidad que confirmo el backend en la fila, no la que se pidio. */
+  u(r: InformeDia): string { return r.unidad || this.unidad(); }
+
+  cambiarUnidad(u: Unidad) {
+    if (this.unidad() === u) return;
+    this.unidad.set(u);
+    this.cargar();
+  }
+
   fmtDia(f: string): string {
     const d = new Date(f + 'T00:00:00');
     if (isNaN(d.getTime())) return f;
@@ -87,7 +104,7 @@ export class InformeComponent implements OnInit {
   async cargar() {
     this.loading.set(true);
     try {
-      const res = await this.api.informe(this.iDesde || undefined, this.iHasta || undefined);
+      const res = await this.api.informe(this.iDesde || undefined, this.iHasta || undefined, this.unidad());
       this.items.set(res.items);
     } catch {
       this.items.set([]);
@@ -103,7 +120,7 @@ export class InformeComponent implements OnInit {
   async descargar(r: InformeDia) {
     this.descargando.set(r.fecha);
     try {
-      await this.exporter.informeDiaCsv(r);
+      await this.exporter.informeDiaCsv(r, this.unidad());
     } catch (e: any) {
       const msg = String(e?.message || e || '');
       if (!/cancel/i.test(msg)) this.toast.show('No se pudo descargar el informe', 'error');

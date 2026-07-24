@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
-import { ReporteLote } from '../core/models';
+import { ReporteLote, Unidad } from '../core/models';
 import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
 
 @Component({
@@ -13,15 +13,22 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
   template: `
     <div class="page-head">
       <div>
-        <h2 class="page-title">Reporte por lote</h2>
-        <p class="page-sub">Rezaga por lote en un rango de fechas.</p>
+        <h2 class="page-title">Reporte por lote y linea</h2>
+        <p class="page-sub">Rezaga de cada lote en cada linea, en un rango de fechas.</p>
       </div>
       <button class="btn btn--ghost" type="button" (click)="cargar()"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Actualizar</button>
     </div>
 
     <form class="filters card" (ngSubmit)="cargar()">
-      <div class="field"><label for="r_desde">DESDE (fecha y hora)</label><input id="r_desde" type="datetime-local" name="desde" [(ngModel)]="desde" /></div>
-      <div class="field"><label for="r_hasta">HASTA (fecha y hora)</label><input id="r_hasta" type="datetime-local" name="hasta" [(ngModel)]="hasta" /></div>
+      <div class="field"><label for="r_desde">DESDE (fecha y hora)</label><input id="r_desde" type="datetime-local" step="1" name="desde" [(ngModel)]="desde" /></div>
+      <div class="field"><label for="r_hasta">HASTA (fecha y hora)</label><input id="r_hasta" type="datetime-local" step="1" name="hasta" [(ngModel)]="hasta" /></div>
+      <div class="field">
+        <label>UNIDAD</label>
+        <div class="segmented segmented--mini" role="group" aria-label="Unidad">
+          <button type="button" class="seg seg--mini" [class.is-active]="unidad() === 'kg'" (click)="cambiarUnidad('kg')">Kilogramos</button>
+          <button type="button" class="seg seg--mini" [class.is-active]="unidad() === 'lb'" (click)="cambiarUnidad('lb')">Libras</button>
+        </div>
+      </div>
       <div class="filters__actions">
         <button class="btn btn--primary" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Ver</button>
         <button class="btn btn--ghost" type="button" (click)="hoy()"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i> Hoy</button>
@@ -46,20 +53,20 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
             <thead>
               <tr>
                 <th>Lote</th>
-                <th>Lineas</th>
+                <th>Linea</th>
                 <th>Variedades</th>
                 <th>Caracteristicas</th>
-                <th class="num">Aprovechable (lb)</th>
-                <th class="num">No aprovechable (lb)</th>
-                <th class="num">Total rezaga (lb)</th>
+                <th class="num">Aprovechable ({{ u() }})</th>
+                <th class="num">No aprovechable ({{ u() }})</th>
+                <th class="num">Total rezaga ({{ u() }})</th>
                 <th class="num">Reg.</th>
               </tr>
             </thead>
             <tbody>
-              @for (f of d.lotes; track f.lote) {
+              @for (f of d.lotes; track f.lote + '|' + f.linea_prod) {
                 <tr>
                   <td>{{ f.lote }}</td>
-                  <td>{{ (f.lineas || []).join(', ') || '-' }}</td>
+                  <td>{{ f.linea_prod || '-' }}</td>
                   <td>{{ (f.variedades || []).join(', ') || '-' }}</td>
                   <td>{{ (f.caracteristicas || []).join(', ') || '-' }}</td>
                   <td class="num">{{ kg(f.rezaga_aprovechable) }}</td>
@@ -97,9 +104,13 @@ export class ReporteComponent implements OnInit {
   kg = fmtKg;
   desde = '';
   hasta = '';
+  unidad = signal<Unidad>('kg');
   data = signal<ReporteLote | null>(null);
   loading = signal(true);
   descargando = signal(false);
+
+  /** Etiqueta: la unidad que confirmo el backend, no la que se pidio. */
+  u(): string { return this.data()?.unidad || this.unidad(); }
 
   ngOnInit() {
     // Abre con la semana actual (lunes 00:00 a domingo 23:59).
@@ -109,25 +120,16 @@ export class ReporteComponent implements OnInit {
     this.cargar();
   }
 
-  /** El input datetime-local da "YYYY-MM-DDTHH:MM". El inicio arranca en el segundo 00. */
-  private desdeParam(): string | undefined {
-    const v = this.desde;
-    if (!v) return undefined;
-    return v.length === 16 ? v + ':00' : v;
-  }
-
-  /** El fin cierra en el segundo 59, para no perder lo registrado dentro de ese minuto
-   *  (con el valor por defecto queda 23:59:59, o sea el dia completo). */
-  private hastaParam(): string | undefined {
-    const v = this.hasta;
-    if (!v) return undefined;
-    return v.length === 16 ? v + ':59' : v;
+  cambiarUnidad(u: Unidad) {
+    if (this.unidad() === u) return;
+    this.unidad.set(u);
+    this.cargar();
   }
 
   async cargar() {
     this.loading.set(true);
     try {
-      const res = await this.api.reporte(this.desdeParam(), this.hastaParam());
+      const res = await this.api.reporte(this.desde || undefined, this.hasta || undefined, this.unidad());
       this.data.set(res.data);
     } catch {
       this.data.set(null);
@@ -143,7 +145,7 @@ export class ReporteComponent implements OnInit {
     this.hasta = h.hasta;
     this.loading.set(true);
     try {
-      const res = await this.api.reporteHoy();
+      const res = await this.api.reporteHoy(this.unidad());
       this.data.set(res.data);
     } catch {
       this.data.set(null);
