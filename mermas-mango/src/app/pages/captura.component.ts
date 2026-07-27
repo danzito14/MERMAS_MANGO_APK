@@ -46,10 +46,10 @@ const MAX_ENTEROS = 10;
       <div class="field">
         <label>TIPO DE MERMA <span class="req">*</span></label>
         <div class="segmented segmented--tipo" role="group" aria-label="Tipo de merma">
-          <button type="button" class="seg" data-tipo="aprovechable" [class.is-active]="tipo() === 'aprovechable'" (click)="tipo.set('aprovechable')">
+          <button type="button" class="seg" data-tipo="aprovechable" [class.is-active]="tipo() === 'aprovechable'" (click)="setTipo('aprovechable')">
             <i class="fa-solid fa-leaf" aria-hidden="true"></i> Aprovechable
           </button>
-          <button type="button" class="seg" data-tipo="cascara_hueso" [class.is-active]="tipo() === 'cascara_hueso'" (click)="tipo.set('cascara_hueso')">
+          <button type="button" class="seg" data-tipo="cascara_hueso" [class.is-active]="tipo() === 'cascara_hueso'" (click)="setTipo('cascara_hueso')">
             <i class="fa-solid fa-bone" aria-hidden="true"></i> Cascara y Hueso
           </button>
         </div>
@@ -69,19 +69,21 @@ const MAX_ENTEROS = 10;
         @if (err()['id_variedad']) { <span class="error">{{ err()['id_variedad'] }}</span> }
       </div>
 
-      <div class="field">
-        <label>CARACTERISTICA <span class="req">*</span></label>
-        @if (caracteristicas().length) {
-          <div class="segmented segmented--mini" role="group" aria-label="Caracteristica" [class.seg-invalid]="!!err()['id_caracteristica']">
-            @for (c of caracteristicas(); track c.id) {
-              <button type="button" class="seg seg--mini" [class.is-active]="idCaracteristica() === c.id" (click)="idCaracteristica.set(c.id)">{{ c.nombre }}</button>
-            }
-          </div>
-        } @else {
-          <small class="hint">No hay caracteristicas registradas. Pide a un administrador que las agregue en Catalogos.</small>
-        }
-        @if (err()['id_caracteristica']) { <span class="error">{{ err()['id_caracteristica'] }}</span> }
-      </div>
+      @if (tipo() === 'aprovechable') {
+        <div class="field">
+          <label>CARACTERISTICA <span class="req">*</span></label>
+          @if (caracteristicas().length) {
+            <div class="segmented segmented--mini" role="group" aria-label="Caracteristica" [class.seg-invalid]="!!err()['id_caracteristica']">
+              @for (c of caracteristicas(); track c.id) {
+                <button type="button" class="seg seg--mini" [class.is-active]="idCaracteristica() === c.id" (click)="idCaracteristica.set(c.id)">{{ c.nombre }}</button>
+              }
+            </div>
+          } @else {
+            <small class="hint">No hay caracteristicas registradas. Pide a un administrador que las agregue en Catalogos.</small>
+          }
+          @if (err()['id_caracteristica']) { <span class="error">{{ err()['id_caracteristica'] }}</span> }
+        </div>
+      }
 
       <div class="field">
         <label for="c_cant">CANTIDAD (KG) <span class="req">*</span></label>
@@ -161,6 +163,15 @@ export class CapturaComponent implements OnInit {
     this.caracteristicas.set(vis(this.cat.caracteristicas(), this.idCaracteristica()));
   }
 
+  /** La caracteristica solo aplica a merma aprovechable; en cascara/hueso se descarta. */
+  setTipo(t: TipoMerma) {
+    this.tipo.set(t);
+    if (t !== 'aprovechable') {
+      this.idCaracteristica.set(null);
+      this.err.update((e) => { const { id_caracteristica, ...resto } = e; return resto; });
+    }
+  }
+
   /** Las letras del lote van siempre en mayusculas (se corrige el input al instante). */
   onLote(ev: Event) {
     const el = ev.target as HTMLInputElement;
@@ -205,7 +216,8 @@ export class CapturaComponent implements OnInit {
     if (this.idVariedad() === null) {
       e['id_variedad'] = this.variedades().length ? 'Elige la variedad.' : 'No hay variedades en el catalogo.';
     }
-    if (this.idCaracteristica() === null) {
+    // La caracteristica es obligatoria solo en merma aprovechable.
+    if (this.tipo() === 'aprovechable' && this.idCaracteristica() === null) {
       e['id_caracteristica'] = this.caracteristicas().length ? 'Elige la caracteristica.' : 'No hay caracteristicas en el catalogo.';
     }
     return e;
@@ -218,7 +230,9 @@ export class CapturaComponent implements OnInit {
 
     const data = {
       cant_kg: this.cant().trim(), tipo_merma: this.tipo(), lote: this.lote().trim().toUpperCase(), linea_prod: this.linea(),
-      id_variedad: this.idVariedad(), id_caracteristica: this.idCaracteristica(),
+      id_variedad: this.idVariedad(),
+      // cascara/hueso no lleva caracteristica: se manda null explicito (importa al editar).
+      id_caracteristica: this.tipo() === 'aprovechable' ? this.idCaracteristica() : null,
     };
     const key = this.editKey();
     this.submitting.set(true);
