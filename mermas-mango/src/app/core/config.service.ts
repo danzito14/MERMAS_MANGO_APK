@@ -1,6 +1,8 @@
 import { Injectable } from '@angular/core';
 
-const DEFAULT_API = 'https://mermasmango.slagricola.cloud';
+// Backend local de desarrollo. Para volver a produccion: 'https://mermasmango.slagricola.cloud'.
+// Se puede sobreescribir en tiempo de ejecucion con localStorage['mm_api_base'].
+const DEFAULT_API = 'http://127.0.0.1:8013';
 const KEY = 'mm_api_base';
 
 @Injectable({ providedIn: 'root' })

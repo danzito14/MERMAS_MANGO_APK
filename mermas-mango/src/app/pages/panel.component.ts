@@ -83,14 +83,15 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
         <div class="empty"><i class="fa-solid fa-inbox" aria-hidden="true"></i><strong>Sin registros en el rango</strong><span>Cambia las fechas o registra una merma.</span></div>
       }
       @for (r of ultimos(); track r._key) {
-        <div class="item" [class.item--casc]="r.tipo_merma === 'cascara_hueso'" [class.item--pending]="r._pending">
-          <span class="item__icon"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i></span>
+        <div class="item" [class.item--casc]="!r.aprovechable" [class.item--pending]="r._pending">
+          <span class="item__icon"><i class="fa-solid {{ icon(r.aprovechable) }}" aria-hidden="true"></i></span>
           <div class="item__main">
             <div class="item__top"><span class="item__kg {{ size(kg(r.cant_kg)) }}">{{ kg(r.cant_kg) }} kg</span>
-              <span class="badge" [class.badge--casc]="r.tipo_merma === 'cascara_hueso'"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i> {{ label(r.tipo_merma) }}</span>
+              <span class="badge" [class.badge--casc]="!r.aprovechable"><i class="fa-solid {{ icon(r.aprovechable) }}" aria-hidden="true"></i> {{ label(r.tipo_merma, r.aprovechable) }}</span>
               @if (r._pending) { <span class="badge badge--pending"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> Pendiente</span> }
             </div>
             <div class="item__meta">
+              @if (r.producto) { <span class="meta-cat"><i class="fa-solid fa-lemon" aria-hidden="true"></i>{{ r.producto }}</span> }
               <span><i class="fa-solid fa-box" aria-hidden="true"></i>{{ r.lote }}</span>
               <span><i class="fa-solid fa-industry" aria-hidden="true"></i>{{ r.linea_prod }}</span>
               <span><i class="fa-solid fa-clock" aria-hidden="true"></i>{{ fecha(r.fecha_hora) }}</span>
@@ -152,7 +153,7 @@ export class PanelComponent implements OnInit {
 
     // Totales del rango (semana por defecto)
     let sumA = 0, sumC = 0, nReg = 0;
-    inf.items.forEach((r) => { sumA += Number(r.total_aprovechable) || 0; sumC += Number(r.total_cascara_hueso) || 0; nReg += r.num_registros || 0; });
+    inf.items.forEach((r) => { sumA += Number(r.total_aprovechable) || 0; sumC += Number(r.total_no_aprovechable) || 0; nReg += r.num_registros || 0; });
     const total = sumA + sumC;
     const nLotes = new Set(rango.items.map((r) => r.lote)).size;
     this.nReg.set(nReg);
@@ -160,7 +161,7 @@ export class PanelComponent implements OnInit {
       { kind: 'blue', icon: 'fa-list-ul', num: String(nReg), label: 'Registros' },
       { kind: 'strong', icon: 'fa-boxes-stacked', num: String(nLotes), label: 'Lotes' },
       { kind: 'green', icon: 'fa-leaf', num: fmtKg(sumA), label: 'Aprovechable (kg)' },
-      { kind: 'amber', icon: 'fa-bone', num: fmtKg(sumC), label: 'Cascara / Hueso (kg)' },
+      { kind: 'amber', icon: 'fa-bone', num: fmtKg(sumC), label: 'No aprovechable (kg)' },
       { kind: 'strong', icon: 'fa-scale-balanced', num: fmtKg(total), label: 'Total general (kg)' },
     ]);
 
@@ -168,7 +169,7 @@ export class PanelComponent implements OnInit {
     let hA = 0, hC = 0;
     hoy.items.forEach((r) => {
       const kg = Number(r.cant_kg) || 0;
-      if (r.tipo_merma === 'aprovechable') hA += kg; else hC += kg;
+      if (r.aprovechable) hA += kg; else hC += kg;
     });
     const hTot = hA + hC;
     this.hoyKg.set(fmtKg(hTot));

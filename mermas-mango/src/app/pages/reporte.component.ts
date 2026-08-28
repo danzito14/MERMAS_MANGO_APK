@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
-import { ReporteLote, Unidad } from '../core/models';
+import { ReporteLote, ReporteLoteFila, Unidad } from '../core/models';
 import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
 
 @Component({
@@ -52,10 +52,12 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
           <table class="rep">
             <thead>
               <tr>
+                @if (conProducto()) { <th>Producto</th> }
                 <th>Lote</th>
                 <th>Linea</th>
                 <th>Variedades</th>
                 <th>Caracteristicas</th>
+                @if (conDesglose()) { <th>Desglose por tipo</th> }
                 <th class="num">Aprovechable ({{ u() }})</th>
                 <th class="num">No aprovechable ({{ u() }})</th>
                 <th class="num">Total rezaga ({{ u() }})</th>
@@ -63,12 +65,14 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
               </tr>
             </thead>
             <tbody>
-              @for (f of d.lotes; track f.lote + '|' + f.linea_prod) {
+              @for (f of d.lotes; track (f.id_producto || '') + '|' + f.lote + '|' + f.linea_prod) {
                 <tr>
+                  @if (conProducto()) { <td>{{ f.producto || '-' }}</td> }
                   <td>{{ f.lote }}</td>
                   <td>{{ f.linea_prod || '-' }}</td>
                   <td>{{ (f.variedades || []).join(', ') || '-' }}</td>
                   <td>{{ (f.caracteristicas || []).join(', ') || '-' }}</td>
+                  @if (conDesglose()) { <td>{{ desglose(f) }}</td> }
                   <td class="num">{{ kg(f.rezaga_aprovechable) }}</td>
                   <td class="num">{{ kg(f.rezaga_no_aprovechable) }}</td>
                   <td class="num strong">{{ kg(f.total_rezaga) }}</td>
@@ -79,9 +83,11 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
             <tfoot>
               <tr>
                 <td>TOTAL</td>
+                @if (conProducto()) { <td></td> }
                 <td></td>
                 <td></td>
                 <td></td>
+                @if (conDesglose()) { <td></td> }
                 <td class="num">{{ kg(d.total_aprovechable) }}</td>
                 <td class="num">{{ kg(d.total_no_aprovechable) }}</td>
                 <td class="num strong">{{ kg(d.total_rezaga) }}</td>
@@ -111,6 +117,16 @@ export class ReporteComponent implements OnInit {
 
   /** Etiqueta: la unidad que confirmo el backend, no la que se pidio. */
   u(): string { return this.data()?.unidad || this.unidad(); }
+
+  /** La columna de producto solo aparece si el backend la manda (el anterior no la tiene). */
+  conProducto(): boolean { return (this.data()?.lotes || []).some((f) => !!f.producto); }
+
+  /** Igual con el desglose por tipo: solo si hay mas de un tipo capturado. */
+  conDesglose(): boolean { return (this.data()?.lotes || []).some((f) => (f.por_tipo || []).length > 1); }
+
+  desglose(f: ReporteLoteFila): string {
+    return (f.por_tipo || []).map((t) => t.tipo_merma + ': ' + fmtKg(t.cant)).join(' / ') || '-';
+  }
 
   ngOnInit() {
     // Abre con la semana actual (lunes 00:00 a domingo 23:59).

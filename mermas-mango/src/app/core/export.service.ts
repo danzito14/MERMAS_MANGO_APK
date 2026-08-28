@@ -26,14 +26,15 @@ export class ExportService {
     L.push(['Rango', this.cell((r.desde || 'inicio') + ' a ' + (r.hasta || 'hoy'))].join(','));
     L.push(['Generado', this.cell(formatFecha(new Date().toISOString()))].join(','));
     L.push('');
-    L.push(['Lote', 'Linea', 'Variedades', 'Caracteristicas', `Rezaga aprovechable (${u})`, `Rezaga no aprovechable (${u})`, `Total rezaga (${u})`, 'Registros'].join(','));
+    L.push(['Producto', 'Lote', 'Linea', 'Variedades', 'Caracteristicas', 'Desglose por tipo', `Rezaga aprovechable (${u})`, `Rezaga no aprovechable (${u})`, `Total rezaga (${u})`, 'Registros'].join(','));
     r.lotes.forEach((f) => L.push([
-      this.cell(f.lote), this.cell(f.linea_prod || ''),
+      this.cell(f.producto || ''), this.cell(f.lote), this.cell(f.linea_prod || ''),
       this.cell((f.variedades || []).join(' / ')), this.cell((f.caracteristicas || []).join(' / ')),
+      this.cell((f.por_tipo || []).map((t) => t.tipo_merma + ': ' + numKg(t.cant)).join(' / ')),
       this.cell(numKg(f.rezaga_aprovechable)), this.cell(numKg(f.rezaga_no_aprovechable)),
       this.cell(numKg(f.total_rezaga)), this.cell(f.num_registros),
     ].join(',')));
-    L.push(['TOTAL', '', '', '', this.cell(numKg(r.total_aprovechable)), this.cell(numKg(r.total_no_aprovechable)), this.cell(numKg(r.total_rezaga)), this.cell(r.num_registros)].join(','));
+    L.push(['TOTAL', '', '', '', '', '', this.cell(numKg(r.total_aprovechable)), this.cell(numKg(r.total_no_aprovechable)), this.cell(numKg(r.total_rezaga)), this.cell(r.num_registros)].join(','));
     const rango = (r.desde || 'inicio') + '_a_' + (r.hasta || 'hoy');
     await this.saveCsv(`reporte-lotes-${u}-${rango}.csv`, '﻿' + L.join(nl));
   }
@@ -53,19 +54,25 @@ export class ExportService {
     L.push('Resumen');
     L.push(['Tipo', `Total (${u})`, 'Registros'].join(','));
     L.push(['Aprovechable', this.cell(numKg(r.total_aprovechable)), ''].join(','));
-    L.push(['Cascara / Hueso', this.cell(numKg(r.total_cascara_hueso)), ''].join(','));
+    L.push(['No aprovechable', this.cell(numKg(r.total_no_aprovechable)), ''].join(','));
     L.push(['Total general', this.cell(numKg(r.total_general)), this.cell(r.num_registros)].join(','));
+    if ((r.por_tipo || []).length > 1) {
+      L.push('');
+      L.push('Desglose por tipo');
+      L.push(['Tipo', 'Aprovechable', `Total (${u})`].join(','));
+      (r.por_tipo || []).forEach((t) => L.push([this.cell(t.tipo_merma), t.aprovechable ? 'si' : 'no', this.cell(numKg(t.cant))].join(',')));
+    }
     L.push('');
     L.push('Detalle');
-    L.push(['Hora', 'Lote', 'Linea', 'Variedad', 'Caracteristica', 'Tipo', `Cantidad (${u})`, 'Registro'].join(','));
+    L.push(['Hora', 'Producto', 'Lote', 'Linea', 'Variedad', 'Caracteristica', 'Tipo', `Cantidad (${u})`, 'Registro'].join(','));
     registros
       .slice()
       .sort((a, b) => (a.fecha_hora || '').localeCompare(b.fecha_hora || ''))
       .forEach((x) => L.push([
         this.cell((x.fecha_hora || '').slice(11, 16)),
-        this.cell(x.lote), this.cell(x.linea_prod),
+        this.cell(x.producto || ''), this.cell(x.lote), this.cell(x.linea_prod),
         this.cell(x.variedad || ''), this.cell(x.caracteristica || ''),
-        this.cell(tipoLabel(x.tipo_merma)),
+        this.cell(tipoLabel(x.tipo_merma, x.aprovechable)),
         this.cell(numKg(aUnidad(Number(x.cant_kg) || 0, u))), this.cell(x.registrado_por || ''),
       ].join(',')));
     return '﻿' + L.join(nl); // BOM para Excel

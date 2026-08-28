@@ -1,4 +1,4 @@
-import { TipoMerma, Unidad } from './models';
+import { Unidad } from './models';
 
 /** Factor exacto que usa el backend para kg -> lb. */
 export const LB_POR_KG = 2.20462262185;
@@ -79,10 +79,14 @@ export function hoyDT(): { desde: string; hasta: string } {
   return { desde: d + 'T00:00:00', hasta: d + 'T23:59:59' };
 }
 
-export function tipoLabel(t: TipoMerma | string): string {
-  return t === 'cascara_hueso' ? 'Cascara / Hueso' : 'Aprovechable';
+/**
+ * El tipo de merma es un catalogo: el nombre viene en el registro y la bandera
+ * `aprovechable` es la que decide como se pinta.
+ */
+export function tipoLabel(nombre: string | null | undefined, aprovechable?: boolean): string {
+  return nombre || (aprovechable ? 'Aprovechable' : 'No aprovechable');
 }
 
-export function tipoIcon(t: TipoMerma | string): string {
-  return t === 'cascara_hueso' ? 'fa-bone' : 'fa-leaf';
+export function tipoIcon(aprovechable: boolean | undefined): string {
+  return aprovechable ? 'fa-leaf' : 'fa-bone';
 }

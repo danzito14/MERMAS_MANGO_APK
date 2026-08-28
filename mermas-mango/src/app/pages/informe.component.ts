@@ -56,9 +56,16 @@ import { fmtKg, hoyYmd, semanaActual } from '../core/util';
             </div>
             <div class="informe__grid">
               <div class="informe__cell"><div class="k">APROVECHABLE</div><div class="v">{{ kg(r.total_aprovechable) }} {{ u(r) }}</div></div>
-              <div class="informe__cell informe__cell--casc"><div class="k">CASCARA / HUESO</div><div class="v">{{ kg(r.total_cascara_hueso) }} {{ u(r) }}</div></div>
+              <div class="informe__cell informe__cell--casc"><div class="k">NO APROVECHABLE</div><div class="v">{{ kg(r.total_no_aprovechable) }} {{ u(r) }}</div></div>
               <div class="informe__cell informe__cell--total"><div class="k">TOTAL GENERAL</div><div class="v">{{ kg(r.total_general) }} {{ u(r) }}</div></div>
             </div>
+            @if (r.por_tipo && r.por_tipo.length > 1) {
+              <div class="item__meta" style="padding:0 14px 12px">
+                @for (t of r.por_tipo; track t.id_tipo_merma) {
+                  <span class="meta-cat"><i class="fa-solid" [class.fa-leaf]="t.aprovechable" [class.fa-bone]="!t.aprovechable" aria-hidden="true"></i>{{ t.tipo_merma }}: {{ kg(t.cant) }} {{ u(r) }}</span>
+                }
+              </div>
+            }
           </div>
         }
       }

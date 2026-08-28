@@ -6,10 +6,10 @@ import { DbService } from './db.service';
 import { NetworkService } from './network.service';
 import { AuthService } from './auth.service';
 import { CatalogoService } from './catalogo.service';
-import { ApiError, InformeDia, LocalRegistro, MermaInput, OutboxEntry, RegistroMermaOut, ReporteLote, Unidad } from './models';
+import { ApiError, CatalogoTipo, InformeDia, LocalRegistro, MermaInput, OutboxEntry, RegistroMermaOut, ReporteLote, TIPO_LEGACY_APROVECHABLE, TIPO_LEGACY_RESIDUO, TotalPorTipo, Unidad } from './models';
 import { aUnidad } from './util';
 
-export interface QueryParams { lote?: string; linea_prod?: string; tipo_merma?: string; fecha?: string; desde?: string; hasta?: string; id_variedad?: number; id_caracteristica?: number; skip?: number; limit?: number; }
+export interface QueryParams { lote?: string; linea_prod?: string; id_tipo_merma?: number; aprovechable?: boolean; fecha?: string; desde?: string; hasta?: string; id_producto?: number; id_variedad?: number; id_caracteristica?: number; skip?: number; limit?: number; }
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -42,12 +42,33 @@ export class ApiService {
     const n = Number(v);
     return isNaN(n) ? '0.000000' : n.toFixed(6);
   }
+  /**
+   * El tipo de merma llega de dos formas: como catalogo (id_tipo_merma + nombre + bandera)
+   * o, en el backend anterior, como el enum 'aprovechable' | 'cascara_hueso'.
+   */
+  private tipoShape(row: any): { id_tipo_merma: number | null; tipo_merma: string; aprovechable: boolean } {
+    if (row?.id_tipo_merma != null) {
+      return {
+        id_tipo_merma: Number(row.id_tipo_merma),
+        tipo_merma: row.tipo_merma || this.nombreCat('tipos-merma', row.id_tipo_merma) || '',
+        aprovechable: row.aprovechable === true,
+      };
+    }
+    const residuo = row?.tipo_merma === 'cascara_hueso';
+    return {
+      id_tipo_merma: residuo ? TIPO_LEGACY_RESIDUO : TIPO_LEGACY_APROVECHABLE,
+      tipo_merma: residuo ? 'Cascara y Hueso' : 'Aprovechable',
+      aprovechable: !residuo,
+    };
+  }
+
   private serverShape(row: RegistroMermaOut): LocalRegistro {
     return {
       _key: 'srv-' + row.id_registro, _pending: false, _op: null, _deleted: false,
-      id_registro: row.id_registro, cant_kg: row.cant_kg, tipo_merma: row.tipo_merma,
+      id_registro: row.id_registro, cant_kg: row.cant_kg, ...this.tipoShape(row),
       lote: row.lote, linea_prod: row.linea_prod, fecha_hora: row.fecha_hora,
       id_usuario: row.id_usuario ?? null, registrado_por: row.registrado_por ?? null,
+      id_producto: row.id_producto ?? null, producto: row.producto ?? this.nombreCat('productos', row.id_producto),
       id_variedad: row.id_variedad ?? null, variedad: row.variedad ?? null,
       id_caracteristica: row.id_caracteristica ?? null, caracteristica: row.caracteristica ?? null,
     };
@@ -90,9 +111,8 @@ export class ApiService {
   }
 
   /** Nombre del catalogo para mostrar en registros creados sin conexion. */
-  private nombreCat(tipo: 'variedades' | 'caracteristicas', id: any): string | null {
-    if (id == null) return null;
-    const it = (tipo === 'variedades' ? this.cat.variedades() : this.cat.caracteristicas()).find((x) => x.id === Number(id));
+  private nombreCat(tipo: CatalogoTipo, id: any): string | null {
+    const it = this.cat.buscar(tipo, id);
     return it ? it.nombre : null;
   }
 
@@ -171,7 +191,7 @@ export class ApiService {
         await this.syncOutbox();
         const params = new HttpParams().set('limit', '500').set('skip', '0');
         const data = await this.call(firstValueFrom(this.http.get<RegistroMermaOut[]>(this.base() + '/mermas', { params })));
-        await this.db.replaceServerRegistros(data || []);
+        await this.db.replaceServerRegistros((data || []).map((r) => this.serverShape(r)));
         await this.db.setMeta('lastSync', this.nowISO());
         return { offline: false };
       } catch (e) {
@@ -193,9 +213,11 @@ export class ApiService {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
     if (params.lote) { const l = params.lote.toLowerCase(); all = all.filter((r) => (r.lote || '').toLowerCase().indexOf(l) !== -1); }
     if (params.linea_prod) { const p = params.linea_prod.toLowerCase(); all = all.filter((r) => (r.linea_prod || '').toLowerCase().indexOf(p) !== -1); }
-    if (params.tipo_merma) all = all.filter((r) => r.tipo_merma === params.tipo_merma);
+    if (params.id_tipo_merma != null) all = all.filter((r) => Number(r.id_tipo_merma) === Number(params.id_tipo_merma));
+    if (params.aprovechable != null) all = all.filter((r) => r.aprovechable === params.aprovechable);
     if (params.fecha) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) === params.fecha);
     if (params.desde || params.hasta) all = all.filter((r) => this.enRango(r.fecha_hora, params.desde, params.hasta));
+    if (params.id_producto != null) all = all.filter((r) => Number(r.id_producto) === Number(params.id_producto));
     if (params.id_variedad != null) all = all.filter((r) => Number(r.id_variedad) === Number(params.id_variedad));
     if (params.id_caracteristica != null) all = all.filter((r) => Number(r.id_caracteristica) === Number(params.id_caracteristica));
     all.sort((a, b) => this.cmp(a, b));
@@ -210,7 +232,7 @@ export class ApiService {
   }
 
   // ---------- informe (agrupado por dia) ----------
-  async informe(desde?: string, hasta?: string, unidad: Unidad = 'kg'): Promise<{ items: InformeDia[]; offline: boolean }> {
+  async informe(desde?: string, hasta?: string, unidad: Unidad = 'kg', idProducto?: number | null): Promise<{ items: InformeDia[]; offline: boolean }> {
     if (this.online()) {
       try {
         let params = new HttpParams();
@@ -218,34 +240,52 @@ export class ApiService {
         if (d) params = params.set('desde', d);
         if (h) params = params.set('hasta', h);
         if (unidad !== 'kg') params = params.set('unidad', unidad);
-        const data = await this.call(firstValueFrom(this.http.get<InformeDia[]>(this.base() + '/mermas/informe', { params })));
-        return { items: data || [], offline: false };
+        if (idProducto != null) params = params.set('id_producto', String(idProducto));
+        const data = await this.call(firstValueFrom(this.http.get<any[]>(this.base() + '/mermas/informe', { params })));
+        // El backend anterior llamaba total_cascara_hueso a lo no aprovechable.
+        const items: InformeDia[] = (data || []).map((r) => ({ ...r, total_no_aprovechable: r.total_no_aprovechable ?? r.total_cascara_hueso ?? '0' }));
+        return { items, offline: false };
       } catch (e) {
         if (!(e as ApiError).network) throw e;
       }
     }
-    return { items: await this.computeInformeLocal(desde, hasta, unidad), offline: true };
+    return { items: await this.computeInformeLocal(desde, hasta, unidad, idProducto), offline: true };
   }
 
-  private async computeInformeLocal(desde?: string, hasta?: string, unidad: Unidad = 'kg'): Promise<InformeDia[]> {
+  private async computeInformeLocal(desde?: string, hasta?: string, unidad: Unidad = 'kg', idProducto?: number | null): Promise<InformeDia[]> {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
     if (desde || hasta) all = all.filter((r) => this.enRango(r.fecha_hora, desde, hasta));
-    const map: Record<string, { fecha: string; a: number; c: number; n: number }> = {};
+    if (idProducto != null) all = all.filter((r) => Number(r.id_producto) === Number(idProducto));
+    const map: Record<string, { fecha: string; a: number; c: number; n: number; tipos: Record<string, TotalPorTipo & { _n: number }> }> = {};
     all.forEach((r) => {
       const dia = (r.fecha_hora || '').slice(0, 10);
-      const g = map[dia] || (map[dia] = { fecha: dia, a: 0, c: 0, n: 0 });
+      const g = map[dia] || (map[dia] = { fecha: dia, a: 0, c: 0, n: 0, tipos: {} });
       const kg = aUnidad(Number(r.cant_kg) || 0, unidad);
-      if (r.tipo_merma === 'aprovechable') g.a += kg; else g.c += kg;
+      if (r.aprovechable) g.a += kg; else g.c += kg;
+      this.acumularTipo(g.tipos, r, kg);
       g.n++;
     });
     return Object.keys(map).sort().reverse().map((k) => {
       const g = map[k];
-      return { fecha: g.fecha, unidad, total_aprovechable: g.a.toFixed(6), total_cascara_hueso: g.c.toFixed(6), total_general: (g.a + g.c).toFixed(6), num_registros: g.n };
+      return { fecha: g.fecha, unidad, total_aprovechable: g.a.toFixed(6), total_no_aprovechable: g.c.toFixed(6), total_general: (g.a + g.c).toFixed(6), num_registros: g.n, por_tipo: this.cerrarTipos(g.tipos) };
     });
   }
 
+  /** Desglose por tipo, igual que el `por_tipo` que manda el backend. */
+  private acumularTipo(acc: Record<string, TotalPorTipo & { _n: number }>, r: LocalRegistro, kg: number): void {
+    const clave = String(r.id_tipo_merma ?? r.tipo_merma ?? '');
+    const t = acc[clave] || (acc[clave] = { id_tipo_merma: Number(r.id_tipo_merma ?? 0), tipo_merma: r.tipo_merma || '', aprovechable: !!r.aprovechable, cant: '0', _n: 0 });
+    t._n += kg;
+  }
+  private cerrarTipos(acc: Record<string, TotalPorTipo & { _n: number }>): TotalPorTipo[] {
+    return Object.keys(acc).map((k) => {
+      const t = acc[k];
+      return { id_tipo_merma: t.id_tipo_merma, tipo_merma: t.tipo_merma, aprovechable: t.aprovechable, cant: t._n.toFixed(6) };
+    }).sort((a, b) => (a.aprovechable === b.aprovechable ? a.tipo_merma.localeCompare(b.tipo_merma) : a.aprovechable ? -1 : 1));
+  }
+
   // ---------- reporte por lote (estilo Excel) ----------
-  async reporte(desde?: string, hasta?: string, unidad: Unidad = 'kg'): Promise<{ data: ReporteLote; offline: boolean }> {
+  async reporte(desde?: string, hasta?: string, unidad: Unidad = 'kg', idProducto?: number | null): Promise<{ data: ReporteLote; offline: boolean }> {
     if (this.online()) {
       try {
         let params = new HttpParams();
@@ -253,21 +293,23 @@ export class ApiService {
         if (d) params = params.set('desde', d);
         if (h) params = params.set('hasta', h);
         if (unidad !== 'kg') params = params.set('unidad', unidad);
+        if (idProducto != null) params = params.set('id_producto', String(idProducto));
         const data = await this.call(firstValueFrom(this.http.get<ReporteLote>(this.base() + '/mermas/reporte', { params })));
         return { data: { ...data, unidad: data?.unidad || unidad }, offline: false };
       } catch (e) {
         if (!(e as ApiError).network) throw e;
       }
     }
-    return { data: await this.computeReporteLocal(desde, hasta, unidad), offline: true };
+    return { data: await this.computeReporteLocal(desde, hasta, unidad, idProducto), offline: true };
   }
 
   /** Reporte por lote del dia de hoy (endpoint dedicado del backend). */
-  async reporteHoy(unidad: Unidad = 'kg'): Promise<{ data: ReporteLote; offline: boolean }> {
+  async reporteHoy(unidad: Unidad = 'kg', idProducto?: number | null): Promise<{ data: ReporteLote; offline: boolean }> {
     if (this.online()) {
       try {
         let params = new HttpParams();
         if (unidad !== 'kg') params = params.set('unidad', unidad);
+        if (idProducto != null) params = params.set('id_producto', String(idProducto));
         const data = await this.call(firstValueFrom(this.http.get<ReporteLote>(this.base() + '/mermas/reporte/hoy', { params })));
         return { data: { ...data, unidad: data?.unidad || unidad }, offline: false };
       } catch (e) {
@@ -276,39 +318,54 @@ export class ApiService {
     }
     const d = new Date();
     const ymd = d.getFullYear() + '-' + this.pad(d.getMonth() + 1) + '-' + this.pad(d.getDate());
-    return { data: await this.computeReporteLocal(ymd, ymd, unidad), offline: true };
+    return { data: await this.computeReporteLocal(ymd, ymd, unidad, idProducto), offline: true };
   }
 
-  /** Mismo criterio que el backend: una fila por lote + linea. */
-  private async computeReporteLocal(desde?: string, hasta?: string, unidad: Unidad = 'kg'): Promise<ReporteLote> {
+  /** Mismo criterio que el backend: una fila por producto + lote + linea. */
+  private async computeReporteLocal(desde?: string, hasta?: string, unidad: Unidad = 'kg', idProducto?: number | null): Promise<ReporteLote> {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
     if (desde || hasta) all = all.filter((r) => this.enRango(r.fecha_hora, desde, hasta));
-    const map: Record<string, { lote: string; linea: string; a: number; c: number; n: number; vars: Set<string>; cars: Set<string> }> = {};
+    if (idProducto != null) all = all.filter((r) => Number(r.id_producto) === Number(idProducto));
+    const map: Record<string, { prod: string | null; idProd: number | null; lote: string; linea: string; a: number; c: number; n: number; vars: Set<string>; cars: Set<string>; tipos: Record<string, TotalPorTipo & { _n: number }> }> = {};
     let tA = 0, tC = 0, tN = 0;
     all.forEach((r) => {
       const linea = r.linea_prod || '';
-      const clave = r.lote + '|' + linea;
-      const g = map[clave] || (map[clave] = { lote: r.lote, linea, a: 0, c: 0, n: 0, vars: new Set<string>(), cars: new Set<string>() });
+      const idProd = r.id_producto ?? null;
+      // Un mismo lote de dos productos son dos filas: no se pueden sumar juntos.
+      const clave = (idProd ?? '') + '|' + r.lote + '|' + linea;
+      const g = map[clave] || (map[clave] = { prod: r.producto ?? null, idProd, lote: r.lote, linea, a: 0, c: 0, n: 0, vars: new Set<string>(), cars: new Set<string>(), tipos: {} });
+      if (!g.prod && r.producto) g.prod = r.producto;
       if (r.variedad) g.vars.add(r.variedad);
       if (r.caracteristica) g.cars.add(r.caracteristica);
       const kg = aUnidad(Number(r.cant_kg) || 0, unidad);
-      if (r.tipo_merma === 'aprovechable') { g.a += kg; tA += kg; } else { g.c += kg; tC += kg; }
+      if (r.aprovechable) { g.a += kg; tA += kg; } else { g.c += kg; tC += kg; }
+      this.acumularTipo(g.tipos, r, kg);
       g.n++; tN++;
     });
     const lotes = Object.keys(map).sort().map((k) => {
       const g = map[k];
-      return { lote: g.lote, linea_prod: g.linea, variedades: Array.from(g.vars).sort(), caracteristicas: Array.from(g.cars).sort(), rezaga_aprovechable: g.a.toFixed(6), rezaga_no_aprovechable: g.c.toFixed(6), total_rezaga: (g.a + g.c).toFixed(6), num_registros: g.n };
+      return { producto: g.prod, id_producto: g.idProd, lote: g.lote, linea_prod: g.linea, variedades: Array.from(g.vars).sort(), caracteristicas: Array.from(g.cars).sort(), rezaga_aprovechable: g.a.toFixed(6), rezaga_no_aprovechable: g.c.toFixed(6), total_rezaga: (g.a + g.c).toFixed(6), num_registros: g.n, por_tipo: this.cerrarTipos(g.tipos) };
     });
     return {
-      desde: desde || null, hasta: hasta || null, unidad, lotes,
+      desde: desde || null, hasta: hasta || null, id_producto: idProducto ?? null, unidad, lotes,
       total_aprovechable: tA.toFixed(6), total_no_aprovechable: tC.toFixed(6), total_rezaga: (tA + tC).toFixed(6), num_registros: tN,
     };
   }
 
   // ---------- mutaciones ----------
+  /**
+   * El backend nuevo espera id_tipo_merma; el anterior, el enum tipo_merma.
+   * Los ids negativos son los tipos sinteticos del catalogo legacy.
+   */
+  private tipoPayload(id: number | null | undefined): any {
+    if (id == null) return {};
+    return id < 0 ? { tipo_merma: id === TIPO_LEGACY_RESIDUO ? 'cascara_hueso' : 'aprovechable' } : { id_tipo_merma: id };
+  }
+
   async crear(data: MermaInput): Promise<{ record: LocalRegistro; queued: boolean }> {
-    const payload: any = { cant_kg: Number(data.cant_kg), tipo_merma: data.tipo_merma, lote: data.lote, linea_prod: data.linea_prod };
+    const payload: any = { cant_kg: Number(data.cant_kg), lote: data.lote, linea_prod: data.linea_prod, ...this.tipoPayload(data.id_tipo_merma) };
     if (data.fecha_hora) payload.fecha_hora = data.fecha_hora;
+    if (data.id_producto != null) payload.id_producto = data.id_producto;
     if (data.id_variedad != null) payload.id_variedad = data.id_variedad;
     if (data.id_caracteristica != null) payload.id_caracteristica = data.id_caracteristica;
 
@@ -329,9 +386,10 @@ export class ApiService {
     const key = 'loc-' + this.uuid();
     const rec: LocalRegistro = {
       _key: key, _pending: true, _op: 'create', _deleted: false, id_registro: null,
-      cant_kg: this.formatKg(payload.cant_kg), tipo_merma: payload.tipo_merma, lote: payload.lote,
+      cant_kg: this.formatKg(payload.cant_kg), ...this.tipoShape(payload), lote: payload.lote,
       linea_prod: payload.linea_prod, fecha_hora: payload.fecha_hora || this.nowISO(),
       id_usuario: null, registrado_por: this.auth.username(),
+      id_producto: payload.id_producto ?? null, producto: this.nombreCat('productos', payload.id_producto),
       id_variedad: payload.id_variedad ?? null, variedad: this.nombreCat('variedades', payload.id_variedad),
       id_caracteristica: payload.id_caracteristica ?? null, caracteristica: this.nombreCat('caracteristicas', payload.id_caracteristica),
     };
@@ -343,11 +401,12 @@ export class ApiService {
 
   async actualizar(key: string, changes: Partial<MermaInput>): Promise<{ record: LocalRegistro; queued: boolean }> {
     const payload: any = {};
-    (['cant_kg', 'tipo_merma', 'lote', 'linea_prod', 'fecha_hora'] as const).forEach((k) => {
+    (['cant_kg', 'lote', 'linea_prod', 'fecha_hora'] as const).forEach((k) => {
       const v = (changes as any)[k];
       if (v !== undefined && v !== '') payload[k] = k === 'cant_kg' ? Number(v) : v;
     });
-    (['id_variedad', 'id_caracteristica'] as const).forEach((k) => {
+    if (changes.id_tipo_merma !== undefined) Object.assign(payload, this.tipoPayload(changes.id_tipo_merma));
+    (['id_producto', 'id_variedad', 'id_caracteristica'] as const).forEach((k) => {
       const v = (changes as any)[k];
       if (v !== undefined) payload[k] = v === null ? null : Number(v);
     });
@@ -357,6 +416,7 @@ export class ApiService {
 
     if (rec._op === 'create' || rec.id_registro == null) {
       Object.keys(payload).forEach((k) => { (rec as any)[k] = k === 'cant_kg' ? this.formatKg(payload[k]) : payload[k]; });
+      this.refrescarNombres(rec);
       await this.db.putRegistro(rec);
       await this.mergeOutboxCreate(key, payload);
       return { record: rec, queued: true };
@@ -377,11 +437,21 @@ export class ApiService {
 
   private async queueUpdate(rec: LocalRegistro, payload: any): Promise<{ record: LocalRegistro; queued: boolean }> {
     Object.keys(payload).forEach((k) => { (rec as any)[k] = k === 'cant_kg' ? this.formatKg(payload[k]) : payload[k]; });
+    this.refrescarNombres(rec);
     rec._pending = true;
     await this.db.putRegistro(rec);
     await this.db.addOutbox({ type: 'update', key: rec._key, serverId: rec.id_registro, payload, createdAt: this.nowISO() });
     await this.updatePending();
     return { record: rec, queued: true };
+  }
+
+  /** Reetiqueta producto/variedad/caracteristica tras editar sin conexion (los ids ya cambiaron). */
+  private refrescarNombres(rec: LocalRegistro): void {
+    const t = this.cat.buscar('tipos-merma', rec.id_tipo_merma);
+    if (t) { rec.tipo_merma = t.nombre; rec.aprovechable = t.aprovechable === true; }
+    rec.producto = this.nombreCat('productos', rec.id_producto);
+    rec.variedad = this.nombreCat('variedades', rec.id_variedad);
+    rec.caracteristica = this.nombreCat('caracteristicas', rec.id_caracteristica);
   }
 
   private async mergeOutboxCreate(key: string, changes: any): Promise<void> {

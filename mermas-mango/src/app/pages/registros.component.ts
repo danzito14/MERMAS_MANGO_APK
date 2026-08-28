@@ -3,8 +3,9 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
+import { CatalogoService } from '../core/catalogo.service';
 import { ToastService } from '../core/toast.service';
-import { LocalRegistro } from '../core/models';
+import { CatalogoItem, LocalRegistro } from '../core/models';
 import { fmtKg, formatFecha, numSize, semanaActual, tipoIcon, tipoLabel } from '../core/util';
 
 const PAGE_SIZE = 20;
@@ -25,14 +26,24 @@ const PAGE_SIZE = 20;
     </div>
 
     <form class="filters card" (ngSubmit)="filtrar()">
+      @if (productos().length) {
+        <div class="field">
+          <label for="f_prod">PRODUCTO</label>
+          <select id="f_prod" name="prod" [(ngModel)]="fProducto">
+            <option value="">Todos</option>
+            @for (p of productos(); track p.id) { <option [value]="p.id">{{ p.nombre }}</option> }
+          </select>
+        </div>
+      }
       <div class="field"><label for="f_lote">LOTE</label><input id="f_lote" name="lote" [(ngModel)]="fLote" placeholder="Todos" autocomplete="off" spellcheck="false" autocapitalize="characters" /></div>
       <div class="field"><label for="f_linea">LINEA</label><input id="f_linea" name="linea" [(ngModel)]="fLinea" placeholder="Todas" autocomplete="off" /></div>
       <div class="field">
         <label for="f_tipo">TIPO</label>
         <select id="f_tipo" name="tipo" [(ngModel)]="fTipo">
           <option value="">Todos</option>
-          <option value="aprovechable">Aprovechable</option>
-          <option value="cascara_hueso">Cascara / Hueso</option>
+          <option value="a">Solo aprovechable</option>
+          <option value="r">Solo residuos</option>
+          @for (t of tipos(); track t.id) { <option [value]="t.id">{{ t.nombre }}</option> }
         </select>
       </div>
       <div class="field"><label for="f_desde">DESDE</label><input id="f_desde" type="date" name="desde" [(ngModel)]="fDesde" /></div>
@@ -46,7 +57,7 @@ const PAGE_SIZE = 20;
 
     <div class="stats stats--mini">
       <div class="stat stat--green"><div class="stat__body"><div class="stat__num {{ size(sumAprov()) }}">{{ sumAprov() }}</div><div class="stat__label">Aprovechable (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-leaf" aria-hidden="true"></i></span></div>
-      <div class="stat stat--amber"><div class="stat__body"><div class="stat__num {{ size(sumCasc()) }}">{{ sumCasc() }}</div><div class="stat__label">Cascara/Hueso (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-bone" aria-hidden="true"></i></span></div>
+      <div class="stat stat--amber"><div class="stat__body"><div class="stat__num {{ size(sumCasc()) }}">{{ sumCasc() }}</div><div class="stat__label">No aprovechable (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-bone" aria-hidden="true"></i></span></div>
       <div class="stat stat--strong"><div class="stat__body"><div class="stat__num {{ size(sumTotal()) }}">{{ sumTotal() }}</div><div class="stat__label">Total pagina (kg)</div></div><span class="stat__icon"><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i></span></div>
     </div>
 
@@ -57,15 +68,16 @@ const PAGE_SIZE = 20;
         <div class="empty"><i class="fa-solid fa-inbox" aria-hidden="true"></i><strong>Sin resultados</strong><span>{{ all().length === 0 ? 'Aun no hay registros.' : 'Ningun registro coincide con el filtro.' }}</span></div>
       } @else {
         @for (r of pageItems(); track r._key) {
-          <div class="item" [class.item--casc]="r.tipo_merma === 'cascara_hueso'" [class.item--pending]="r._pending">
-            <span class="item__icon"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i></span>
+          <div class="item" [class.item--casc]="!r.aprovechable" [class.item--pending]="r._pending">
+            <span class="item__icon"><i class="fa-solid {{ icon(r.aprovechable) }}" aria-hidden="true"></i></span>
             <div class="item__main">
               <div class="item__top">
                 <span class="item__kg {{ size(kg(r.cant_kg)) }}">{{ kg(r.cant_kg) }} kg</span>
-                <span class="badge" [class.badge--casc]="r.tipo_merma === 'cascara_hueso'"><i class="fa-solid {{ icon(r.tipo_merma) }}" aria-hidden="true"></i> {{ label(r.tipo_merma) }}</span>
+                <span class="badge" [class.badge--casc]="!r.aprovechable"><i class="fa-solid {{ icon(r.aprovechable) }}" aria-hidden="true"></i> {{ label(r.tipo_merma, r.aprovechable) }}</span>
                 @if (r._pending) { <span class="badge badge--pending"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> Pendiente</span> }
               </div>
               <div class="item__meta">
+                @if (r.producto) { <span class="meta-cat"><i class="fa-solid fa-lemon" aria-hidden="true"></i>{{ r.producto }}</span> }
                 <span><i class="fa-solid fa-box" aria-hidden="true"></i>{{ r.lote }}</span>
                 <span><i class="fa-solid fa-industry" aria-hidden="true"></i>{{ r.linea_prod }}</span>
                 <span><i class="fa-solid fa-clock" aria-hidden="true"></i>{{ fecha(r.fecha_hora) }}</span>
@@ -107,10 +119,13 @@ const PAGE_SIZE = 20;
 export class RegistrosComponent implements OnInit {
   private api = inject(ApiService);
   auth = inject(AuthService);
+  private cat = inject(CatalogoService);
   private toast = inject(ToastService);
 
-  fLote = ''; fLinea = ''; fTipo = ''; fDesde = ''; fHasta = '';
+  fProducto = ''; fLote = ''; fLinea = ''; fTipo = ''; fDesde = ''; fHasta = '';
   all = signal<LocalRegistro[]>([]);
+  productos = signal<CatalogoItem[]>([]);
+  tipos = signal<CatalogoItem[]>([]);
   page = signal(0);
   loading = signal(true);
   confirmKey = signal<string | null>(null);
@@ -119,13 +134,13 @@ export class RegistrosComponent implements OnInit {
 
   maxPage = computed(() => Math.max(0, Math.ceil(this.all().length / PAGE_SIZE) - 1));
   pageItems = computed(() => { const s = this.page() * PAGE_SIZE; return this.all().slice(s, s + PAGE_SIZE); });
-  sumAprov = computed(() => fmtKg(this.sumaNum('aprovechable')));
-  sumCasc = computed(() => fmtKg(this.sumaNum('cascara_hueso')));
-  sumTotal = computed(() => fmtKg(this.sumaNum('aprovechable') + this.sumaNum('cascara_hueso')));
+  sumAprov = computed(() => fmtKg(this.sumaNum(true)));
+  sumCasc = computed(() => fmtKg(this.sumaNum(false)));
+  sumTotal = computed(() => fmtKg(this.sumaNum(true) + this.sumaNum(false)));
 
   /** Suma cruda (numero), para no parsear textos ya formateados con comas. */
-  private sumaNum(tipo: string): number {
-    return this.pageItems().filter((r) => r.tipo_merma === tipo).reduce((a, r) => a + (Number(r.cant_kg) || 0), 0);
+  private sumaNum(aprovechable: boolean): number {
+    return this.pageItems().filter((r) => !!r.aprovechable === aprovechable).reduce((a, r) => a + (Number(r.cant_kg) || 0), 0);
   }
 
   ngOnInit() {
@@ -133,13 +148,19 @@ export class RegistrosComponent implements OnInit {
     const s = semanaActual();
     this.fDesde = s.desde;
     this.fHasta = s.hasta;
+    this.cat.cargar('productos').then((p) => this.productos.set(p.filter((x) => x.activo))).catch(() => {});
+    this.cat.cargar('tipos-merma').then((t) => this.tipos.set(t.filter((x) => x.activo))).catch(() => {});
     this.cargar(true);
   }
 
   private async cargar(refresh: boolean) {
     if (refresh) { this.loading.set(true); await this.api.refresh(); }
     const res = await this.api.query({
-      lote: this.fLote.trim().toUpperCase(), linea_prod: this.fLinea.trim(), tipo_merma: this.fTipo,
+      lote: this.fLote.trim().toUpperCase(), linea_prod: this.fLinea.trim(),
+      // el filtro de tipo es un id, o 'a'/'r' para todo lo aprovechable / todos los residuos
+      id_tipo_merma: this.fTipo && this.fTipo !== 'a' && this.fTipo !== 'r' ? Number(this.fTipo) : undefined,
+      aprovechable: this.fTipo === 'a' ? true : this.fTipo === 'r' ? false : undefined,
+      id_producto: this.fProducto ? Number(this.fProducto) : undefined,
       desde: this.fDesde || undefined, hasta: this.fHasta || undefined, skip: 0, limit: 1000000,
     });
     if (this.page() > 0 && this.page() * PAGE_SIZE >= res.items.length) this.page.set(0);
@@ -149,7 +170,7 @@ export class RegistrosComponent implements OnInit {
 
   filtrar() { this.page.set(0); this.cargar(true); }
   estaSemana() { const s = semanaActual(); this.fDesde = s.desde; this.fHasta = s.hasta; this.page.set(0); this.cargar(true); }
-  limpiar() { this.fLote = ''; this.fLinea = ''; this.fTipo = ''; this.fDesde = ''; this.fHasta = ''; this.page.set(0); this.cargar(true); }
+  limpiar() { this.fProducto = ''; this.fLote = ''; this.fLinea = ''; this.fTipo = ''; this.fDesde = ''; this.fHasta = ''; this.page.set(0); this.cargar(true); }
   prev() { if (this.page() > 0) this.page.update((p) => p - 1); }
   next() { if (this.page() < this.maxPage()) this.page.update((p) => p + 1); }
 

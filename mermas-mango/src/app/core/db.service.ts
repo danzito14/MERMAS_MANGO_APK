@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { LocalRegistro, OutboxEntry, RegistroMermaOut } from './models';
+import { LocalRegistro, OutboxEntry, TIPO_LEGACY_APROVECHABLE, TIPO_LEGACY_RESIDUO } from './models';
 
 const DB_NAME = 'mermas_mango';
 const DB_VERSION = 1;
@@ -67,12 +67,28 @@ export class DbService {
   }
 
   // ----- registros -----
-  getRegistros(): Promise<LocalRegistro[]> { return this.getAll<LocalRegistro>('registros'); }
+  getRegistros(): Promise<LocalRegistro[]> {
+    return this.getAll<LocalRegistro>('registros').then((rows) => rows.map((r) => this.compat(r)));
+  }
+
+  /**
+   * Al actualizar la app, la cache del telefono trae registros de la version anterior,
+   * cuando tipo_merma era el enum y no existia la bandera. Se traducen al leerlos.
+   */
+  private compat(r: LocalRegistro): LocalRegistro {
+    if (r && r.aprovechable === undefined) {
+      const residuo = (r.tipo_merma as any) === 'cascara_hueso';
+      r.aprovechable = !residuo;
+      r.id_tipo_merma = r.id_tipo_merma ?? (residuo ? TIPO_LEGACY_RESIDUO : TIPO_LEGACY_APROVECHABLE);
+      r.tipo_merma = residuo ? 'Cascara y Hueso' : 'Aprovechable';
+    }
+    return r;
+  }
   putRegistro(r: LocalRegistro): Promise<IDBValidKey> { return this.put('registros', r); }
   delRegistro(key: string): Promise<undefined> { return this.del('registros', key); }
 
   /** Reemplaza los registros del servidor conservando (sin pisar) los locales pendientes. */
-  replaceServerRegistros(serverList: RegistroMermaOut[]): Promise<boolean> {
+  replaceServerRegistros(serverList: LocalRegistro[]): Promise<boolean> {
     return this.open().then(
       (db) =>
         new Promise<boolean>((resolve, reject) => {
@@ -89,26 +105,8 @@ export class DbService {
                 const pendKeys: Record<string, boolean> = {};
                 pending.forEach((p) => { os.put(p); pendKeys[p._key] = true; });
                 serverList.forEach((row) => {
-                  const key = 'srv-' + row.id_registro;
-                  if (pendKeys[key]) return; // no pisar edicion/borrado pendiente
-                  os.put({
-                    _key: key,
-                    _pending: false,
-                    _op: null,
-                    _deleted: false,
-                    id_registro: row.id_registro,
-                    cant_kg: row.cant_kg,
-                    tipo_merma: row.tipo_merma,
-                    lote: row.lote,
-                    linea_prod: row.linea_prod,
-                    fecha_hora: row.fecha_hora,
-                    id_usuario: row.id_usuario ?? null,
-                    registrado_por: row.registrado_por ?? null,
-                    id_variedad: row.id_variedad ?? null,
-                    variedad: row.variedad ?? null,
-                    id_caracteristica: row.id_caracteristica ?? null,
-                    caracteristica: row.caracteristica ?? null,
-                  } as LocalRegistro);
+                  if (pendKeys[row._key]) return; // no pisar edicion/borrado pendiente
+                  os.put(row);
                 });
               };
             }
