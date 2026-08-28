@@ -1,10 +1,11 @@
-import { Component, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { ApiService } from '../core/api.service';
 import { NetworkService } from '../core/network.service';
 import { ToastService } from '../core/toast.service';
 import { CatalogoService } from '../core/catalogo.service';
+import { TemaService } from '../core/tema.service';
 
 @Component({
   selector: 'app-shell',
@@ -15,8 +16,8 @@ import { CatalogoService } from '../core/catalogo.service';
       <div class="topbar__left">
         <button class="iconbtn" type="button" (click)="toggleMenu()" aria-label="Menu"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
         <div class="topbar__brand">
-          <img src="icons/icon-96.png" alt="" class="topbar__logo" width="32" height="32" />
-          <span class="topbar__title">MERMAS MANGO</span>
+          <img [src]="logo()" (error)="fallaLogo()" alt="" class="topbar__logo" width="32" height="32" />
+          <span class="topbar__title">{{ titulo() }}</span>
         </div>
       </div>
       <div class="topbar__right">
@@ -77,14 +78,39 @@ export class ShellComponent implements OnInit {
   auth = inject(AuthService);
   net = inject(NetworkService);
   api = inject(ApiService);
-  private cat = inject(CatalogoService);
+  cat = inject(CatalogoService);
+  private tema = inject(TemaService);
   private toast = inject(ToastService);
   private router = inject(Router);
 
   menuOpen = signal(false);
+
+  /**
+   * "MERMAS MANGO", "MERMAS CALABAZA"... segun el producto en uso. Viendo todos
+   * los productos queda solo "MERMAS"; con un backend sin productos, "MERMAS MANGO".
+   */
+  titulo = computed(() => {
+    const nombre = this.cat.nombreProductoActivo();
+    if (nombre) return 'MERMAS ' + nombre.toUpperCase();
+    const hayProductos = this.cat.soportaProductos() && this.cat.productos().length > 0;
+    return hayProductos ? 'MERMAS' : 'MERMAS MANGO';
+  });
+
+  /** Imagenes que no cargaron (sin conexion o archivo borrado): se usa el icono de la app. */
+  private logoRoto = signal<string | null>(null);
+
+  /** El logo de la barra es la imagen del producto; si no tiene o falla, el de la app. */
+  logo = computed(() => {
+    const url = this.cat.urlImagen(this.cat.itemProductoActivo());
+    return url && url !== this.logoRoto() ? url : 'icons/icon-96.png';
+  });
+
   private prevOnline: boolean;
 
   constructor() {
+    // El color del producto repinta la app entera: que se note cuando se cambia.
+    effect(() => this.tema.aplicar(this.cat.itemProductoActivo()?.color));
+
     this.prevOnline = this.net.online();
     // Reacciona a los cambios de conexion: al reconectar, sube los pendientes solo.
     effect(() => {
@@ -110,6 +136,8 @@ export class ShellComponent implements OnInit {
 
   toggleMenu(v?: boolean) { this.menuOpen.set(v ?? !this.menuOpen()); }
 
+  fallaLogo() { this.logoRoto.set(this.cat.urlImagen(this.cat.itemProductoActivo())); }
+
   sync() {
     if (!this.net.online()) { this.toast.show('Sin conexion: se sincronizara al reconectar', 'info'); return; }
     this.toast.show('Sincronizando...', 'info');
@@ -120,6 +148,7 @@ export class ShellComponent implements OnInit {
   }
 
   logout() {
+    this.tema.restaurar();          // el login vuelve al verde de la marca
     this.auth.clearSession();
     this.api.clearAll().catch(() => {});
     this.toggleMenu(false);

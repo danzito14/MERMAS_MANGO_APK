@@ -25,6 +25,13 @@ const TIPOS_LEGACY: CatalogoItem[] = [
   { id: TIPO_LEGACY_RESIDUO, nombre: 'Cascara y Hueso', activo: true, aprovechable: false, id_producto: null },
 ];
 
+/** Color de respaldo si el backend todavia no manda uno (version anterior). */
+const COLOR_PRODUCTO_DEFECTO = '#9E9E9E';
+
+/** Limites de la imagen de producto, los mismos que valida la API. */
+export const IMAGEN_MAX_MB = 5;
+export const IMAGEN_TIPOS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
 const META_KEY = 'cat_cache';
 const PREF_PRODUCTO = 'mm_producto';
 
@@ -35,6 +42,8 @@ export interface CatalogoDatos {
   id_producto?: number | null;
   etiqueta_no_aprovechable?: string;
   aprovechable?: boolean;
+  /** Solo productos: color hex (#RRGGBB). */
+  color?: string;
 }
 
 /**
@@ -57,6 +66,9 @@ export class CatalogoService {
   readonly tipos = signal<CatalogoItem[]>([]);
   readonly variedades = signal<CatalogoItem[]>([]);
   readonly caracteristicas = signal<CatalogoItem[]>([]);
+
+  /** Producto seleccionado ahora mismo (arranca con el de la ultima captura). */
+  readonly productoActivo = signal<number | null>(this.productoPreferido());
 
   /** false cuando el backend todavia no expone /productos: la app trabaja como antes, sin producto. */
   readonly soportaProductos = signal(true);
@@ -89,6 +101,8 @@ export class CatalogoService {
     };
     if (tipo === 'productos') {
       it.etiqueta_no_aprovechable = row?.etiqueta_no_aprovechable || 'Cascara y Hueso';
+      it.color = row?.color || COLOR_PRODUCTO_DEFECTO;
+      it.imagen_url = row?.imagen_url ?? null;
     } else {
       it.id_producto = row?.id_producto ?? null;   // en caracteristicas y tipos, null = global
       if (tipo === 'tipos-merma') it.aprovechable = row?.aprovechable === true;
@@ -213,6 +227,30 @@ export class CatalogoService {
     return undefined;
   }
 
+  /**
+   * Sube (o reemplaza) la imagen del producto. Va como multipart en el campo
+   * "archivo"; el navegador pone el Content-Type con su boundary, por eso no
+   * se toca la cabecera. La API devuelve el producto ya actualizado.
+   */
+  async subirImagen(idProducto: number, archivo: File): Promise<CatalogoItem> {
+    const cuerpo = new FormData();
+    cuerpo.append('archivo', archivo);
+    const row = await this.call(firstValueFrom(
+      this.http.post<any>(this.base('productos') + '/' + idProducto + '/imagen', cuerpo),
+    ));
+    await this.cargar('productos');
+    return this.norm('productos', row);
+  }
+
+  /** Quita la imagen del producto (la API borra tambien el archivo). */
+  async quitarImagen(idProducto: number): Promise<CatalogoItem> {
+    const row = await this.call(firstValueFrom(
+      this.http.delete<any>(this.base('productos') + '/' + idProducto + '/imagen'),
+    ));
+    await this.cargar('productos');
+    return this.norm('productos', row);
+  }
+
   /** Solo los activos, para los selectores de captura. */
   activos(tipo: CatalogoTipo, idProducto: number | null = null): CatalogoItem[] {
     return this.de(tipo, idProducto).filter((x) => x.activo);
@@ -235,11 +273,37 @@ export class CatalogoService {
       return v ? Number(v) : null;
     } catch { return null; }
   }
+
+  /** Producto con el que se esta trabajando; la barra superior lo lleva en el titulo. */
   setProductoPreferido(id: number | null): void {
+    this.productoActivo.set(id);
     try {
       if (id == null) localStorage.removeItem(PREF_PRODUCTO);
       else localStorage.setItem(PREF_PRODUCTO, String(id));
     } catch { /* ignore */ }
+  }
+
+  /**
+   * Nombre del producto en uso, o null si no hay ninguno (backend anterior,
+   * o todavia sin catalogos cargados). Depende de la senal `productos` para
+   * que el titulo se refresque solo cuando terminan de cargar los catalogos.
+   */
+  nombreProductoActivo(): string | null {
+    return this.itemProductoActivo()?.nombre ?? null;
+  }
+
+  /** El producto en uso (para su color y su imagen). Depende de la senal `productos`. */
+  itemProductoActivo(): CatalogoItem | null {
+    const id = this.productoActivo();
+    if (id == null) return null;
+    return this.productos().find((x) => x.id === id) || this.buscar('productos', id) || null;
+  }
+
+  /** URL absoluta de la imagen de un producto (la API la sirve como ruta relativa). */
+  urlImagen(p: CatalogoItem | null): string | null {
+    const ruta = p?.imagen_url;
+    if (!ruta) return null;
+    return /^https?:\/\//i.test(ruta) ? ruta : this.cfg.apiBase + ruta;
   }
 
   // ---- escritura (solo admin en el backend) ----
@@ -267,6 +331,7 @@ export class CatalogoService {
     if (d.activo !== undefined) b.activo = d.activo;
     if (tipo === 'productos') {
       if (d.etiqueta_no_aprovechable !== undefined) b.etiqueta_no_aprovechable = d.etiqueta_no_aprovechable;
+      if (d.color !== undefined) b.color = d.color;
       return b;
     }
     if (tipo === 'tipos-merma' && d.aprovechable !== undefined) b.aprovechable = d.aprovechable;

@@ -26,6 +26,10 @@ export interface CatalogoItem {
   etiqueta_no_aprovechable?: string;
   /** Solo tipos-merma: true = se aprovecha, false = residuo. */
   aprovechable?: boolean;
+  /** Solo productos: color hex (#RRGGBB) con el que el front lo distingue. Nunca null. */
+  color?: string;
+  /** Solo productos: ruta relativa de su imagen ("/static/productos/1-ab12.png"), o null. */
+  imagen_url?: string | null;
 }
 
 /** Cuanto se acumulo de un tipo de merma concreto (desglose de informes y reportes). */

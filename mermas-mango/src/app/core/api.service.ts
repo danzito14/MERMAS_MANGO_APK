@@ -51,7 +51,8 @@ export class ApiService {
       return {
         id_tipo_merma: Number(row.id_tipo_merma),
         tipo_merma: row.tipo_merma || this.nombreCat('tipos-merma', row.id_tipo_merma) || '',
-        aprovechable: row.aprovechable === true,
+        // El contrato permite aprovechable null: se cae al catalogo antes de contarlo como residuo.
+        aprovechable: row.aprovechable ?? this.cat.buscar('tipos-merma', row.id_tipo_merma)?.aprovechable === true,
       };
     }
     const residuo = row?.tipo_merma === 'cascara_hueso';

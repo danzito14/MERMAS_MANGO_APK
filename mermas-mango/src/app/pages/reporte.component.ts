@@ -1,6 +1,8 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
+import { CatalogoService } from '../core/catalogo.service';
+import { ProductoSelectorComponent } from '../shared/producto-selector.component';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
 import { ReporteLote, ReporteLoteFila, Unidad } from '../core/models';
@@ -9,7 +11,7 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
 @Component({
   selector: 'app-reporte',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ProductoSelectorComponent],
   template: `
     <div class="page-head">
       <div>
@@ -20,6 +22,7 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
     </div>
 
     <form class="filters card" (ngSubmit)="cargar()">
+      <app-producto-selector />
       <div class="field"><label for="r_desde">DESDE (fecha y hora)</label><input id="r_desde" type="datetime-local" step="1" name="desde" [(ngModel)]="desde" /></div>
       <div class="field"><label for="r_hasta">HASTA (fecha y hora)</label><input id="r_hasta" type="datetime-local" step="1" name="hasta" [(ngModel)]="hasta" /></div>
       <div class="field">
@@ -104,6 +107,12 @@ import { fmtKg, hoyDT, semanaActualDT } from '../core/util';
 })
 export class ReporteComponent implements OnInit {
   private api = inject(ApiService);
+  private cat = inject(CatalogoService);
+
+  constructor() {
+    effect(() => { this.cat.productoActivo(); if (this.iniciado) this.cargar(); });
+  }
+  private iniciado = false;
   private exporter = inject(ExportService);
   private toast = inject(ToastService);
 
@@ -133,6 +142,7 @@ export class ReporteComponent implements OnInit {
     const s = semanaActualDT();
     this.desde = s.desde;
     this.hasta = s.hasta;
+    this.iniciado = true;
     this.cargar();
   }
 
@@ -145,7 +155,7 @@ export class ReporteComponent implements OnInit {
   async cargar() {
     this.loading.set(true);
     try {
-      const res = await this.api.reporte(this.desde || undefined, this.hasta || undefined, this.unidad());
+      const res = await this.api.reporte(this.desde || undefined, this.hasta || undefined, this.unidad(), this.cat.productoActivo() ?? undefined);
       this.data.set(res.data);
     } catch {
       this.data.set(null);
@@ -161,7 +171,7 @@ export class ReporteComponent implements OnInit {
     this.hasta = h.hasta;
     this.loading.set(true);
     try {
-      const res = await this.api.reporteHoy(this.unidad());
+      const res = await this.api.reporteHoy(this.unidad(), this.cat.productoActivo() ?? undefined);
       this.data.set(res.data);
     } catch {
       this.data.set(null);

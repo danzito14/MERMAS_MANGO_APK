@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
@@ -6,6 +6,7 @@ import { AuthService } from '../core/auth.service';
 import { CatalogoService } from '../core/catalogo.service';
 import { ToastService } from '../core/toast.service';
 import { CatalogoItem, LocalRegistro } from '../core/models';
+import { ProductoSelectorComponent } from '../shared/producto-selector.component';
 import { fmtKg, formatFecha, numSize, semanaActual, tipoIcon, tipoLabel } from '../core/util';
 
 const PAGE_SIZE = 20;
@@ -13,7 +14,7 @@ const PAGE_SIZE = 20;
 @Component({
   selector: 'app-registros',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, ProductoSelectorComponent],
   template: `
     <div class="page-head">
       <div>
@@ -26,15 +27,7 @@ const PAGE_SIZE = 20;
     </div>
 
     <form class="filters card" (ngSubmit)="filtrar()">
-      @if (productos().length) {
-        <div class="field">
-          <label for="f_prod">PRODUCTO</label>
-          <select id="f_prod" name="prod" [(ngModel)]="fProducto">
-            <option value="">Todos</option>
-            @for (p of productos(); track p.id) { <option [value]="p.id">{{ p.nombre }}</option> }
-          </select>
-        </div>
-      }
+      <app-producto-selector />
       <div class="field"><label for="f_lote">LOTE</label><input id="f_lote" name="lote" [(ngModel)]="fLote" placeholder="Todos" autocomplete="off" spellcheck="false" autocapitalize="characters" /></div>
       <div class="field"><label for="f_linea">LINEA</label><input id="f_linea" name="linea" [(ngModel)]="fLinea" placeholder="Todas" autocomplete="off" /></div>
       <div class="field">
@@ -122,10 +115,15 @@ export class RegistrosComponent implements OnInit {
   private cat = inject(CatalogoService);
   private toast = inject(ToastService);
 
-  fProducto = ''; fLote = ''; fLinea = ''; fTipo = ''; fDesde = ''; fHasta = '';
+  fLote = ''; fLinea = ''; fTipo = ''; fDesde = ''; fHasta = '';
   all = signal<LocalRegistro[]>([]);
-  productos = signal<CatalogoItem[]>([]);
   tipos = signal<CatalogoItem[]>([]);
+
+  constructor() {
+    // El producto se elige en la barra de arriba: al cambiarlo se recarga la lista.
+    effect(() => { this.cat.productoActivo(); if (this.iniciado) { this.page.set(0); this.cargar(true); } });
+  }
+  private iniciado = false;
   page = signal(0);
   loading = signal(true);
   confirmKey = signal<string | null>(null);
@@ -148,8 +146,8 @@ export class RegistrosComponent implements OnInit {
     const s = semanaActual();
     this.fDesde = s.desde;
     this.fHasta = s.hasta;
-    this.cat.cargar('productos').then((p) => this.productos.set(p.filter((x) => x.activo))).catch(() => {});
     this.cat.cargar('tipos-merma').then((t) => this.tipos.set(t.filter((x) => x.activo))).catch(() => {});
+    this.iniciado = true;
     this.cargar(true);
   }
 
@@ -160,7 +158,7 @@ export class RegistrosComponent implements OnInit {
       // el filtro de tipo es un id, o 'a'/'r' para todo lo aprovechable / todos los residuos
       id_tipo_merma: this.fTipo && this.fTipo !== 'a' && this.fTipo !== 'r' ? Number(this.fTipo) : undefined,
       aprovechable: this.fTipo === 'a' ? true : this.fTipo === 'r' ? false : undefined,
-      id_producto: this.fProducto ? Number(this.fProducto) : undefined,
+      id_producto: this.cat.productoActivo() ?? undefined,
       desde: this.fDesde || undefined, hasta: this.fHasta || undefined, skip: 0, limit: 1000000,
     });
     if (this.page() > 0 && this.page() * PAGE_SIZE >= res.items.length) this.page.set(0);
@@ -170,7 +168,7 @@ export class RegistrosComponent implements OnInit {
 
   filtrar() { this.page.set(0); this.cargar(true); }
   estaSemana() { const s = semanaActual(); this.fDesde = s.desde; this.fHasta = s.hasta; this.page.set(0); this.cargar(true); }
-  limpiar() { this.fProducto = ''; this.fLote = ''; this.fLinea = ''; this.fTipo = ''; this.fDesde = ''; this.fHasta = ''; this.page.set(0); this.cargar(true); }
+  limpiar() { this.fLote = ''; this.fLinea = ''; this.fTipo = ''; this.fDesde = ''; this.fHasta = ''; this.page.set(0); this.cargar(true); }
   prev() { if (this.page() > 0) this.page.update((p) => p - 1); }
   next() { if (this.page() < this.maxPage()) this.page.update((p) => p + 1); }
 

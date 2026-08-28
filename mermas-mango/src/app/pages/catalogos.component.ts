@@ -1,7 +1,8 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { CatalogoDatos, CatalogoService } from '../core/catalogo.service';
+import { CatalogoDatos, CatalogoService, IMAGEN_MAX_MB, IMAGEN_TIPOS } from '../core/catalogo.service';
+import { NetworkService } from '../core/network.service';
 import { ToastService } from '../core/toast.service';
 import { AuthService } from '../core/auth.service';
 import { ApiError, CatalogoItem, CatalogoTipo } from '../core/models';
@@ -101,6 +102,7 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
             <input id="cat_etq" name="etq" [(ngModel)]="nuevaEtq" maxlength="60" placeholder="Cascara y Hueso" autocomplete="off" spellcheck="false" />
             <small class="hint">Como se llama al capturar la merma que no se aprovecha de este producto.</small>
           </div>
+          <small class="hint">Se le asigna un color automaticamente. El color y la imagen se cambian al editarlo.</small>
         }
         @if (tipo() === 'tipos-merma') {
           <label class="switch">
@@ -133,8 +135,15 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
         <div class="empty"><i class="fa-solid {{ emptyIcon() }}" aria-hidden="true"></i><strong>{{ emptyTitle() }}</strong><span>{{ emptySub() }}</span></div>
       } @else {
         @for (it of items(); track it.id) {
-          <div class="item">
-            <span class="item__icon"><i class="fa-solid {{ meta().icono }}" aria-hidden="true"></i></span>
+          <div class="item" [style.border-left-color]="tipo() === 'productos' ? it.color : null">
+            <span class="item__icon" [style.background]="tipo() === 'productos' ? it.color : null"
+                  [style.color]="tipo() === 'productos' ? '#fff' : null" [style.overflow]="'hidden'">
+              @if (tipo() === 'productos' && cat.urlImagen(it); as img) {
+                <img [src]="img" alt="" style="width:100%; height:100%; object-fit:cover" />
+              } @else {
+                <i class="fa-solid {{ meta().icono }}" aria-hidden="true"></i>
+              }
+            </span>
             <div class="item__main">
               <div class="item__top">
                 <span class="item__kg" style="font-size:1.05rem">{{ it.nombre }}</span>
@@ -179,6 +188,46 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
             <div class="field">
               <label>NOMBRE DE LA MERMA NO APROVECHABLE</label>
               <input name="ee" [(ngModel)]="eEtq" maxlength="60" placeholder="Cascara y Hueso" spellcheck="false" />
+            </div>
+
+            <div class="field">
+              <label for="cat_color">COLOR</label>
+              <div style="display:flex; align-items:center; gap:10px">
+                <input id="cat_color" type="color" name="ecol" [(ngModel)]="eColor"
+                       style="width:54px; height:42px; padding:3px; flex:0 0 auto" aria-label="Elegir color" />
+                <input name="ehex" [(ngModel)]="eColor" maxlength="7" spellcheck="false" autocomplete="off"
+                       placeholder="#E8A33D" style="flex:1; text-transform:uppercase" [class.is-invalid]="!!eColorErr()" />
+              </div>
+              <small class="hint">Con este color se pinta la app mientras se captura este producto.</small>
+              @if (eColorErr()) { <span class="error">{{ eColorErr() }}</span> }
+            </div>
+
+            <div class="field">
+              <label>IMAGEN</label>
+              <div style="display:flex; align-items:center; gap:12px">
+                <span class="item__icon" style="overflow:hidden; flex:0 0 auto">
+                  @if (eImagen()) {
+                    <img [src]="eImagen()" alt="" style="width:100%; height:100%; object-fit:cover" />
+                  } @else {
+                    <i class="fa-solid fa-image" aria-hidden="true"></i>
+                  }
+                </span>
+                <div style="display:flex; gap:8px; flex-wrap:wrap">
+                  <label class="btn btn--ghost btn--sm" style="margin:0; cursor:pointer">
+                    <i class="fa-solid fa-upload" aria-hidden="true"></i>
+                    {{ subiendo() ? 'Subiendo...' : (eImagen() ? 'Cambiar' : 'Elegir imagen') }}
+                    <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden
+                           [disabled]="subiendo()" (change)="elegirImagen($event, it)" />
+                  </label>
+                  @if (eImagen()) {
+                    <button class="btn btn--ghost btn--sm" type="button" [disabled]="subiendo()" (click)="borrarImagen(it)">
+                      <i class="fa-solid fa-trash-can" aria-hidden="true"></i> Quitar
+                    </button>
+                  }
+                </div>
+              </div>
+              <small class="hint">Es el logo de la barra al capturar este producto. JPG, PNG, GIF o WEBP, hasta {{ maxMb }} MB. Se guarda al momento.</small>
+              @if (eImgErr()) { <span class="error">{{ eImgErr() }}</span> }
             </div>
           }
           @if (tipo() === 'tipos-merma') {
@@ -229,6 +278,7 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
 })
 export class CatalogosComponent implements OnInit {
   cat = inject(CatalogoService);
+  private net = inject(NetworkService);
   private toast = inject(ToastService);
   private auth = inject(AuthService);
   private route = inject(ActivatedRoute);
@@ -246,7 +296,13 @@ export class CatalogosComponent implements OnInit {
 
   editando = signal<CatalogoItem | null>(null);
   eNombre = ''; eEtq = ''; eActivo = true; eGlobal = false; eAprov = false;
+  eColor = '#9E9E9E';
   eErr = signal('');
+  eColorErr = signal('');
+  eImagen = signal<string | null>(null);
+  eImgErr = signal('');
+  subiendo = signal(false);
+  readonly maxMb = IMAGEN_MAX_MB;
 
   confirmDel = signal<CatalogoItem | null>(null);
 
@@ -337,6 +393,10 @@ export class CatalogosComponent implements OnInit {
     this.eNombre = it.nombre;
     this.eActivo = it.activo;
     this.eEtq = it.etiqueta_no_aprovechable || '';
+    this.eColor = it.color || '#9E9E9E';
+    this.eColorErr.set('');
+    this.eImagen.set(this.cat.urlImagen(it));
+    this.eImgErr.set('');
     this.eAprov = it.aprovechable === true;
     this.eGlobal = it.id_producto == null;
     this.eErr.set('');
@@ -354,6 +414,10 @@ export class CatalogosComponent implements OnInit {
     if (this.tipo() === 'productos') {
       const etq = this.eEtq.trim();
       if (etq && etq !== it.etiqueta_no_aprovechable) cambios.etiqueta_no_aprovechable = etq;
+      const color = this.normalizarColor(this.eColor);
+      if (!color) { this.eColorErr.set('Usa un color en formato #RRGGBB.'); return; }
+      this.eColorErr.set('');
+      if (color !== (it.color || '').toUpperCase()) cambios.color = color;
     } else {
       if (this.tipo() === 'tipos-merma' && this.eAprov !== (it.aprovechable === true)) cambios.aprovechable = this.eAprov;
       if (this.tipo() !== 'variedades' && this.hayProductos()) {
@@ -403,6 +467,63 @@ export class CatalogosComponent implements OnInit {
       await this.cargar();
     } catch (e) {
       this.manejarError(e as ApiError, 'No se pudo eliminar');
+    }
+  }
+
+  /** '#e8a' y 'e8a33d' valen; devuelve '#E8A33D' o null si no es un color. */
+  private normalizarColor(valor: string): string | null {
+    let texto = (valor || '').trim().toUpperCase().replace(/^#/, '');
+    if (/^[0-9A-F]{3}$/.test(texto)) texto = texto.split('').map((c) => c + c).join('');
+    return /^[0-9A-F]{6}$/.test(texto) ? '#' + texto : null;
+  }
+
+  /** Sube la imagen elegida. Se manda al momento: la API la guarda contra el producto. */
+  async elegirImagen(ev: Event, it: CatalogoItem) {
+    const input = ev.target as HTMLInputElement;
+    const archivo = input.files && input.files[0];
+    input.value = '';                     // permite volver a elegir el mismo archivo
+    if (!archivo) return;
+
+    if (!IMAGEN_TIPOS.includes(archivo.type)) {
+      this.eImgErr.set('Solo JPG, PNG, GIF o WEBP.');
+      return;
+    }
+    if (archivo.size > IMAGEN_MAX_MB * 1024 * 1024) {
+      this.eImgErr.set('Pesa ' + Math.round(archivo.size / 1024 / 1024 * 10) / 10 + ' MB y el maximo son ' + IMAGEN_MAX_MB + ' MB.');
+      return;
+    }
+    if (!this.net.online()) {
+      this.eImgErr.set('Necesitas conexion para subir la imagen.');
+      return;
+    }
+
+    this.eImgErr.set('');
+    this.subiendo.set(true);
+    try {
+      const actualizado = await this.cat.subirImagen(it.id, archivo);
+      this.eImagen.set(this.cat.urlImagen(actualizado));
+      this.toast.show('Imagen guardada', 'ok');
+      await this.cargar();
+    } catch (e) {
+      const err = e as ApiError;
+      this.eImgErr.set(this.detalle(err) || 'No se pudo subir la imagen.');
+      this.manejarError(err, 'No se pudo subir la imagen');
+    } finally {
+      this.subiendo.set(false);
+    }
+  }
+
+  async borrarImagen(it: CatalogoItem) {
+    this.subiendo.set(true);
+    try {
+      await this.cat.quitarImagen(it.id);
+      this.eImagen.set(null);
+      this.toast.show('Imagen quitada', 'ok');
+      await this.cargar();
+    } catch (e) {
+      this.eImgErr.set(this.detalle(e as ApiError) || 'No se pudo quitar la imagen.');
+    } finally {
+      this.subiendo.set(false);
     }
   }
 

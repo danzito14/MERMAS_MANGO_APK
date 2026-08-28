@@ -1,6 +1,8 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
+import { CatalogoService } from '../core/catalogo.service';
+import { ProductoSelectorComponent } from '../shared/producto-selector.component';
 import { ExportService } from '../core/export.service';
 import { ToastService } from '../core/toast.service';
 import { InformeDia, Unidad } from '../core/models';
@@ -9,7 +11,7 @@ import { fmtKg, hoyYmd, semanaActual } from '../core/util';
 @Component({
   selector: 'app-informe',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ProductoSelectorComponent],
   template: `
     <div class="page-head">
       <div>
@@ -20,6 +22,7 @@ import { fmtKg, hoyYmd, semanaActual } from '../core/util';
     </div>
 
     <form class="filters card" (ngSubmit)="cargar()">
+      <app-producto-selector />
       <div class="field"><label for="i_desde">DESDE</label><input id="i_desde" type="date" name="desde" [(ngModel)]="iDesde" /></div>
       <div class="field"><label for="i_hasta">HASTA</label><input id="i_hasta" type="date" name="hasta" [(ngModel)]="iHasta" /></div>
       <div class="field">
@@ -74,6 +77,12 @@ import { fmtKg, hoyYmd, semanaActual } from '../core/util';
 })
 export class InformeComponent implements OnInit {
   private api = inject(ApiService);
+  private cat = inject(CatalogoService);
+
+  constructor() {
+    effect(() => { this.cat.productoActivo(); if (this.iniciado) this.cargar(); });
+  }
+  private iniciado = false;
   private exporter = inject(ExportService);
   private toast = inject(ToastService);
 
@@ -90,6 +99,7 @@ export class InformeComponent implements OnInit {
     const s = semanaActual();
     this.iDesde = s.desde;
     this.iHasta = s.hasta;
+    this.iniciado = true;
     this.cargar();
   }
 
@@ -111,7 +121,7 @@ export class InformeComponent implements OnInit {
   async cargar() {
     this.loading.set(true);
     try {
-      const res = await this.api.informe(this.iDesde || undefined, this.iHasta || undefined, this.unidad());
+      const res = await this.api.informe(this.iDesde || undefined, this.iHasta || undefined, this.unidad(), this.cat.productoActivo() ?? undefined);
       this.items.set(res.items);
     } catch {
       this.items.set([]);

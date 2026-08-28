@@ -67,11 +67,14 @@ const MAX_ENTEROS = 10;
           <div class="segmented segmented--tipo" role="group" aria-label="Tipo de merma" [class.seg-invalid]="!!err()['id_tipo_merma']">
             @for (t of tipos(); track t.id) {
               <button type="button" class="seg" [attr.data-tipo]="t.aprovechable ? 'aprovechable' : 'cascara_hueso'"
-                      [class.is-active]="idTipo() === t.id" (click)="setTipo(t.id)">
+                      [class.is-active]="estaSel(t.id)" (click)="setTipo(t.id)">
                 <i class="fa-solid" [class.fa-leaf]="t.aprovechable" [class.fa-bone]="!t.aprovechable" aria-hidden="true"></i> {{ t.nombre }}
               </button>
             }
           </div>
+          @if (!editKey() && tipos().length > 1) {
+            <small class="hint">Puedes marcar varios: se guarda un registro por cada uno.</small>
+          }
         } @else {
           <small class="hint">{{ vacio('tipos de merma') }}</small>
         }
@@ -108,12 +111,32 @@ const MAX_ENTEROS = 10;
         </div>
       }
 
-      <div class="field">
-        <label for="c_cant">CANTIDAD (KG) <span class="req">*</span></label>
-        <input id="c_cant" type="text" inputmode="decimal" [value]="cant()" (input)="onCant($event)" placeholder="0.00" autocomplete="off" [class.is-invalid]="!!err()['cant_kg']" />
-        <small class="hint">No negativos. Hasta 10 enteros y 6 decimales.</small>
-        @if (err()['cant_kg']) { <span class="error">{{ err()['cant_kg'] }}</span> }
-      </div>
+      @if (tiposSel().length > 1) {
+        <div class="field">
+          <label>CANTIDADES (KG) <span class="req">*</span></label>
+          @for (t of tiposSelItems(); track t.id) {
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px">
+              <span style="flex:1; min-width:0; display:flex; align-items:center; gap:6px">
+                <i class="fa-solid" [class.fa-leaf]="t.aprovechable" [class.fa-bone]="!t.aprovechable" aria-hidden="true"></i>
+                {{ t.nombre }}
+              </span>
+              <input type="text" inputmode="decimal" style="flex:0 0 45%" [value]="cantidadDe(t.id)"
+                     (input)="onCant($event, t.id)" placeholder="0.00" autocomplete="off"
+                     [attr.aria-label]="'Cantidad de ' + t.nombre" [class.is-invalid]="!!err()['cant_' + t.id]" />
+            </div>
+            @if (err()['cant_' + t.id]) { <span class="error">{{ t.nombre }}: {{ err()['cant_' + t.id] }}</span> }
+          }
+          <small class="hint">Se guarda un registro por tipo, todos con el mismo lote y linea.</small>
+        </div>
+      } @else {
+        <div class="field">
+          <label for="c_cant">CANTIDAD (KG) <span class="req">*</span></label>
+          <input id="c_cant" type="text" inputmode="decimal" [value]="cantidadDe(claveUnica())" (input)="onCant($event, claveUnica())"
+                 placeholder="0.00" autocomplete="off" [class.is-invalid]="!!err()['cant_' + claveUnica()]" />
+          <small class="hint">No negativos. Hasta 10 enteros y 6 decimales.</small>
+          @if (err()['cant_' + claveUnica()]) { <span class="error">{{ err()['cant_' + claveUnica()] }}</span> }
+        </div>
+      }
 
       @if (!editKey()) {
         <label class="switch">
@@ -145,9 +168,11 @@ export class CapturaComponent implements OnInit {
   readonly lineas: Linea[] = ['L1', 'L2', 'L3', 'L4'];
   linea = signal<Linea>('L1');
   lote = signal('');
-  cant = signal('');
   idProducto = signal<number | null>(null);
-  idTipo = signal<number | null>(null);
+  /** Tipos marcados: uno solo es lo normal, varios guardan un registro por cada uno. */
+  tiposSel = signal<number[]>([]);
+  /** Cantidad tecleada de cada tipo. La clave 0 guarda lo que se escribio antes de elegir tipo. */
+  cants = signal<Record<number, string>>({});
   idVariedad = signal<number | null>(null);
   idCaracteristica = signal<number | null>(null);
   productos = signal<CatalogoItem[]>([]);
@@ -161,8 +186,23 @@ export class CapturaComponent implements OnInit {
 
   hayProductos() { return this.cat.soportaProductos() && this.productos().length > 0; }
 
-  /** La caracteristica solo se pide cuando el tipo elegido se aprovecha (si no, la API responde 400). */
-  esAprovechable() { return this.tipos().find((t) => t.id === this.idTipo())?.aprovechable === true; }
+  estaSel(id: number) { return this.tiposSel().includes(id); }
+
+  /** Los tipos marcados, en el orden en que aparecen en el catalogo. */
+  tiposSelItems(): CatalogoItem[] { return this.tipos().filter((t) => this.estaSel(t.id)); }
+
+  /** Clave del campo de cantidad cuando hay 0 o 1 tipos: 0 = todavia sin elegir. */
+  claveUnica(): number { return this.tiposSel()[0] ?? 0; }
+
+  cantidadDe(id: number): string { return this.cants()[id] || ''; }
+
+  /**
+   * La caracteristica solo se pide si alguno de los tipos marcados se aprovecha:
+   * en un residuo la API la rechaza con 400.
+   */
+  esAprovechable() { return this.tiposSelItems().some((t) => t.aprovechable === true); }
+
+  private aprovechable(id: number) { return this.tipos().find((t) => t.id === id)?.aprovechable === true; }
 
   vacio(tipo: string): string {
     const p = this.hayProductos() ? this.productos().find((x) => x.id === this.idProducto()) : null;
@@ -180,9 +220,10 @@ export class CapturaComponent implements OnInit {
     const r = await this.api.getByKey(key);
     if (!r) { this.toast.show('Registro no encontrado', 'error'); this.router.navigateByUrl('/registros'); return; }
     this.linea.set(/^L[1-4]$/.test(r.linea_prod) ? (r.linea_prod as Linea) : 'L1');
-    this.idTipo.set(r.id_tipo_merma ?? null);
+    const idTipo = r.id_tipo_merma ?? 0;
+    this.tiposSel.set(idTipo ? [idTipo] : []);
     this.lote.set(String(r.lote || '').toUpperCase());
-    this.cant.set(numKg(r.cant_kg));
+    this.cants.set({ [idTipo]: numKg(r.cant_kg) });
     this.idVariedad.set(r.id_variedad ?? null);
     this.idCaracteristica.set(r.id_caracteristica ?? null);
     // El producto del registro manda sobre el preferido, y arrastra sus catalogos.
@@ -206,6 +247,9 @@ export class CapturaComponent implements OnInit {
     const pref = this.cat.productoPreferido();
     const elegido = pref != null && lista.some((p) => p.id === pref) ? pref : (lista.length ? lista[0].id : null);
     this.idProducto.set(elegido);
+    // Sin preferencia guardada se toma el primero: queda como el producto en uso
+    // para que la barra superior no se quede con el nombre por defecto.
+    if (!this.editKey()) this.cat.setProductoPreferido(elegido);
   }
 
   /**
@@ -216,7 +260,7 @@ export class CapturaComponent implements OnInit {
     if (this.idProducto() === id && !conservarSeleccion) return;
     this.idProducto.set(id);
     if (!this.editKey()) this.cat.setProductoPreferido(id);
-    if (!conservarSeleccion) { this.idTipo.set(null); this.idVariedad.set(null); this.idCaracteristica.set(null); }
+    if (!conservarSeleccion) { this.tiposSel.set([]); this.cants.set({}); this.idVariedad.set(null); this.idCaracteristica.set(null); }
     this.err.update((e) => { const { id_producto, id_tipo_merma, id_variedad, id_caracteristica, ...resto } = e; return resto; });
     this.aplicarVisibles();                       // instantaneo con lo cacheado
     if (id == null) return;
@@ -230,8 +274,10 @@ export class CapturaComponent implements OnInit {
   /** Si lo seleccionado ya no existe en el producto actual, se descarta. */
   private podarSeleccion() {
     const id = this.idProducto();
-    const t = this.idTipo(), v = this.idVariedad(), c = this.idCaracteristica();
-    if (t != null && !this.cat.de('tipos-merma', id).some((x) => x.id === t)) this.idTipo.set(null);
+    const v = this.idVariedad(), c = this.idCaracteristica();
+    const delProducto = this.cat.de('tipos-merma', id);
+    const quedan = this.tiposSel().filter((t) => delProducto.some((x) => x.id === t));
+    if (quedan.length !== this.tiposSel().length) this.tiposSel.set(quedan);
     if (v != null && !this.cat.de('variedades', id).some((x) => x.id === v)) this.idVariedad.set(null);
     if (c != null && !this.cat.de('caracteristicas', id).some((x) => x.id === c)) this.idCaracteristica.set(null);
   }
@@ -240,16 +286,44 @@ export class CapturaComponent implements OnInit {
   private aplicarVisibles() {
     const id = this.idProducto();
     const vis = (items: CatalogoItem[], sel: number | null) => items.filter((x) => x.activo || x.id === sel);
-    this.tipos.set(vis(this.cat.de('tipos-merma', id), this.idTipo()));
+    const visTipos = this.cat.de('tipos-merma', id).filter((x) => x.activo || this.estaSel(x.id));
+    this.tipos.set(visTipos);
     this.variedades.set(vis(this.cat.de('variedades', id), this.idVariedad()));
     this.caracteristicas.set(vis(this.cat.de('caracteristicas', id), this.idCaracteristica()));
-    if (this.idTipo() === null && this.tipos().length === 1) this.idTipo.set(this.tipos()[0].id);
+    // El formulario abre con el tipo aprovechable marcado (como antes de que se
+    // pudieran marcar varios): si no, la caracteristica no se ve al entrar y
+    // parece que falta. Para capturar solo residuo se desmarca.
+    if (!this.tiposSel().length && visTipos.length) {
+      this.marcarTipo((visTipos.find((t) => t.aprovechable) || visTipos[0]).id);
+    }
   }
 
-  /** La caracteristica solo aplica a los tipos aprovechables; en un residuo se descarta. */
+  /**
+   * Marca o desmarca un tipo. Se pueden llevar varios a la vez: cada uno con su
+   * cantidad se guarda como un registro aparte (la API crea uno por peticion).
+   * Al editar un registro existente solo se puede tener uno.
+   */
   setTipo(id: number) {
-    this.idTipo.set(id);
+    if (this.editKey()) { this.tiposSel.set([id]); return; }
+    this.estaSel(id) ? this.desmarcarTipo(id) : this.marcarTipo(id);
+  }
+
+  private marcarTipo(id: number) {
+    const previos = this.tiposSel();
+    this.tiposSel.set([...previos, id]);
+    // Lo que se haya escrito antes de elegir tipo pasa al primero que se marca.
+    if (!previos.length) {
+      const suelto = this.cants()[0];
+      if (suelto) this.cants.update((c) => { const { 0: _, ...resto } = c; return { ...resto, [id]: suelto }; });
+    }
     this.err.update((e) => { const { id_tipo_merma, ...resto } = e; return resto; });
+  }
+
+  private desmarcarTipo(id: number) {
+    this.tiposSel.update((sel) => sel.filter((x) => x !== id));
+    this.cants.update((c) => { const copia = { ...c }; delete copia[id]; return copia; });
+    this.err.update((e) => { const copia = { ...e }; delete copia['cant_' + id]; return copia; });
+    // Sin ningun tipo aprovechable marcado, la caracteristica ya no aplica.
     if (!this.esAprovechable()) {
       this.idCaracteristica.set(null);
       this.err.update((e) => { const { id_caracteristica, ...resto } = e; return resto; });
@@ -269,7 +343,7 @@ export class CapturaComponent implements OnInit {
   }
 
   /** Solo numeros: un punto decimal, maximo 9 enteros y 6 decimales. */
-  onCant(ev: Event) {
+  onCant(ev: Event, idTipo: number) {
     const el = ev.target as HTMLInputElement;
     let s = (el.value || '').replace(/,/g, '.').replace(/[^\d.]/g, '');
     const i = s.indexOf('.');
@@ -278,20 +352,30 @@ export class CapturaComponent implements OnInit {
     ent = (ent || '').slice(0, MAX_ENTEROS);
     s = dec !== undefined ? ent + '.' + dec.slice(0, 6) : ent;
     if (el.value !== s) el.value = s;        // corrige el input al instante
-    this.cant.set(s);
+    this.cants.update((c) => ({ ...c, [idTipo]: s }));
   }
 
   cancelar() { this.router.navigateByUrl('/registros'); }
 
+  /** Revisa una cantidad; devuelve el error o '' si esta bien. */
+  private errorCantidad(raw: string): string {
+    const n = Number(raw);
+    if (raw === '') return 'La cantidad es obligatoria.';
+    if (isNaN(n)) return 'Debe ser un numero (usa punto decimal).';
+    if (n < 0) return 'No puede ser negativa.';
+    if (!/^\d+(\.\d{1,6})?$/.test(raw)) return 'Maximo 6 decimales.';
+    if (raw.split('.')[0].length > MAX_ENTEROS) return 'Maximo ' + MAX_ENTEROS + ' digitos enteros.';
+    return '';
+  }
+
   private validar(): Record<string, string> {
     const e: Record<string, string> = {};
-    const raw = this.cant().trim();
-    const n = Number(raw);
-    if (raw === '') e['cant_kg'] = 'La cantidad es obligatoria.';
-    else if (isNaN(n)) e['cant_kg'] = 'Debe ser un numero (usa punto decimal).';
-    else if (n < 0) e['cant_kg'] = 'No puede ser negativa.';
-    else if (!/^\d+(\.\d{1,6})?$/.test(raw)) e['cant_kg'] = 'Maximo 6 decimales.';
-    else if (raw.split('.')[0].length > MAX_ENTEROS) e['cant_kg'] = 'Maximo ' + MAX_ENTEROS + ' digitos enteros.';
+    // Una cantidad por cada tipo marcado (sin tipo aun, se revisa el campo suelto).
+    const claves = this.tiposSel().length ? this.tiposSel() : [0];
+    claves.forEach((id) => {
+      const error = this.errorCantidad(this.cantidadDe(id).trim());
+      if (error) e['cant_' + id] = error;
+    });
 
     const lote = this.lote().trim();
     if (!lote) e['lote'] = 'El lote es obligatorio.';
@@ -300,7 +384,7 @@ export class CapturaComponent implements OnInit {
     if (this.cat.soportaProductos() && this.idProducto() === null) {
       e['id_producto'] = this.productos().length ? 'Elige el producto.' : 'No hay productos en el catalogo.';
     }
-    if (this.idTipo() === null) {
+    if (!this.tiposSel().length) {
       e['id_tipo_merma'] = this.tipos().length ? 'Elige el tipo de merma.' : 'No hay tipos de merma en el catalogo.';
     }
     // Variedad y caracteristica son opcionales para la API: se exigen solo cuando
@@ -318,28 +402,28 @@ export class CapturaComponent implements OnInit {
     this.err.set(errs);
     if (Object.keys(errs).length) { this.toast.show('Revisa los campos marcados', 'error'); return; }
 
-    const data: any = {
-      cant_kg: this.cant().trim(), id_tipo_merma: this.idTipo(), lote: this.lote().trim().toUpperCase(), linea_prod: this.linea(),
-      id_variedad: this.idVariedad(),
-      // un residuo no lleva caracteristica: se manda null explicito (importa al editar).
-      id_caracteristica: this.esAprovechable() ? this.idCaracteristica() : null,
-    };
-    // Solo se manda si el backend maneja productos (no romper contra la version anterior).
-    if (this.cat.soportaProductos() && this.idProducto() != null) data.id_producto = this.idProducto();
     const key = this.editKey();
+    const seleccion = this.tiposSel();
     this.submitting.set(true);
+    let guardados = 0, encolados = 0;
     try {
-      const res = key ? await this.api.actualizar(key, data) : await this.api.crear(data);
-      this.toast.show(res.queued ? 'Guardado sin conexion (se sincronizara)' : (key ? 'Registro actualizado' : 'Merma registrada'), res.queued ? 'info' : 'ok');
-      if (key) { this.router.navigateByUrl('/registros'); return; }
-      this.cant.set('');
-      if (!this.keep) {
-        // El producto se conserva: es la configuracion de la sesion de captura.
-        this.linea.set('L1'); this.lote.set('');
-        this.idTipo.set(null); this.idVariedad.set(null); this.idCaracteristica.set(null);
-        this.aplicarVisibles();
+      if (key) {
+        const res = await this.api.actualizar(key, this.datosDe(seleccion[0]));
+        this.toast.show(res.queued ? 'Guardado sin conexion (se sincronizara)' : 'Registro actualizado', res.queued ? 'info' : 'ok');
+        this.router.navigateByUrl('/registros');
+        return;
       }
+      // La API crea un registro por peticion: se manda uno por cada tipo marcado.
+      for (const idTipo of seleccion) {
+        const res = await this.api.crear(this.datosDe(idTipo));
+        guardados++;
+        if (res.queued) encolados++;
+      }
+      this.toast.show(this.mensajeAlta(guardados, encolados), encolados ? 'info' : 'ok');
+      this.limpiarTrasGuardar();
     } catch (e) {
+      // Si iban varias y alguna ya entro, se avisa cuales quedaron guardadas.
+      if (guardados) this.toast.show(this.parcial(guardados, seleccion.length), 'error');
       const err = e as ApiError;
       if (err?.status === 422 && Array.isArray(err.detail)) {
         const m: Record<string, string> = {};
@@ -356,5 +440,40 @@ export class CapturaComponent implements OnInit {
     } finally {
       this.submitting.set(false);
     }
+  }
+
+  /** El registro que se manda para un tipo: lo comun del formulario + su cantidad. */
+  private datosDe(idTipo: number): any {
+    const data: any = {
+      cant_kg: this.cantidadDe(idTipo).trim(),
+      id_tipo_merma: idTipo,
+      lote: this.lote().trim().toUpperCase(),
+      linea_prod: this.linea(),
+      id_variedad: this.idVariedad(),
+      // un residuo no lleva caracteristica: se manda null explicito (importa al editar).
+      id_caracteristica: this.aprovechable(idTipo) ? this.idCaracteristica() : null,
+    };
+    // Solo se manda si el backend maneja productos (no romper contra la version anterior).
+    if (this.cat.soportaProductos() && this.idProducto() != null) data.id_producto = this.idProducto();
+    return data;
+  }
+
+  private mensajeAlta(guardados: number, encolados: number): string {
+    const que = guardados === 1 ? 'Merma registrada' : guardados + ' mermas registradas';
+    return encolados ? que + ' sin conexion (se sincronizan)' : que;
+  }
+
+  private parcial(guardados: number, total: number): string {
+    return 'Se guardaron ' + guardados + ' de ' + total + '; el resto no se pudo.';
+  }
+
+  /** Tras un alta: la cantidad siempre se limpia; lo demas solo si no se pidio conservarlo. */
+  private limpiarTrasGuardar() {
+    this.cants.set({});
+    if (this.keep) return;
+    // El producto se conserva: es la configuracion de la sesion de captura.
+    this.linea.set('L1'); this.lote.set('');
+    this.tiposSel.set([]); this.idVariedad.set(null); this.idCaracteristica.set(null);
+    this.aplicarVisibles();
   }
 }

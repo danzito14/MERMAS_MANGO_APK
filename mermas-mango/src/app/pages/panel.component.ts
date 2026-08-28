@@ -1,7 +1,9 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { CatalogoService } from '../core/catalogo.service';
+import { ProductoSelectorComponent } from '../shared/producto-selector.component';
 import { LocalRegistro } from '../core/models';
 import { fmtKg, formatFecha, numSize, semanaActual, tipoIcon, tipoLabel } from '../core/util';
 
@@ -10,7 +12,7 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
 @Component({
   selector: 'app-panel',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, ProductoSelectorComponent],
   template: `
     <div class="page-head">
       <div>
@@ -21,6 +23,7 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
     </div>
 
     <form class="filters card" (ngSubmit)="cargar()">
+      <app-producto-selector />
       <div class="field"><label for="p_desde">DESDE</label><input id="p_desde" type="date" name="desde" [(ngModel)]="desde" /></div>
       <div class="field"><label for="p_hasta">HASTA</label><input id="p_hasta" type="date" name="hasta" [(ngModel)]="hasta" /></div>
       <div class="filters__actions">
@@ -105,6 +108,13 @@ interface Stat { kind: string; icon: string; num: string; label: string; }
 })
 export class PanelComponent implements OnInit {
   private api = inject(ApiService);
+  private cat = inject(CatalogoService);
+
+  constructor() {
+    // Al cambiar de producto en la barra, el panel se recalcula solo.
+    effect(() => { this.cat.productoActivo(); if (this.iniciado) this.cargar(); });
+  }
+  private iniciado = false;
 
   desde = '';
   hasta = '';
@@ -124,6 +134,7 @@ export class PanelComponent implements OnInit {
     const s = semanaActual();
     this.desde = s.desde;
     this.hasta = s.hasta;
+    this.iniciado = true;
     this.cargar();
   }
 
@@ -145,10 +156,12 @@ export class PanelComponent implements OnInit {
     const desde = this.desde || undefined;
     const hasta = this.hasta || undefined;
 
+    // null = todos los productos.
+    const prod = this.cat.productoActivo() ?? undefined;
     const [inf, rango, hoy] = await Promise.all([
-      this.api.informe(desde, hasta),
-      this.api.query({ desde, hasta, skip: 0, limit: 1000000 }),
-      this.api.query({ fecha: ymd, skip: 0, limit: 1000000 }),
+      this.api.informe(desde, hasta, 'kg', prod),
+      this.api.query({ desde, hasta, id_producto: prod, skip: 0, limit: 1000000 }),
+      this.api.query({ fecha: ymd, id_producto: prod, skip: 0, limit: 1000000 }),
     ]);
 
     // Totales del rango (semana por defecto)
