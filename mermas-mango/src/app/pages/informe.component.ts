@@ -37,6 +37,11 @@ import { fmtKg, hoyYmd, semanaActual } from '../core/util';
         <button class="btn btn--ghost" type="button" (click)="hoy()"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i> Hoy</button>
         <button class="btn btn--ghost" type="button" (click)="estaSemana()"><i class="fa-solid fa-calendar-week" aria-hidden="true"></i> Esta semana</button>
         <button class="btn btn--ghost" type="button" (click)="limpiar()"><i class="fa-solid fa-eraser" aria-hidden="true"></i> Limpiar</button>
+        @if (items().length) {
+          <button class="btn btn--ghost" type="button" (click)="descargarRango()" [disabled]="descargando() !== null">
+            <i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i> {{ descargando() === RANGO ? 'Generando...' : 'Descargar rango' }}
+          </button>
+        }
       </div>
     </form>
 
@@ -52,7 +57,7 @@ import { fmtKg, hoyYmd, semanaActual } from '../core/util';
               <span class="informe__lote"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i> {{ fmtDia(r.fecha) }}</span>
               <div class="informe__actions">
                 <span class="badge badge--lote">{{ r.num_registros }} {{ r.num_registros === 1 ? 'registro' : 'registros' }}</span>
-                <button class="btn btn--ghost btn--sm" type="button" (click)="descargar(r)" [disabled]="descargando() === r.fecha">
+                <button class="btn btn--ghost btn--sm" type="button" (click)="descargar(r)" [disabled]="descargando() !== null">
                   <i class="fa-solid fa-download" aria-hidden="true"></i> {{ descargando() === r.fecha ? 'Generando...' : 'Descargar' }}
                 </button>
               </div>
@@ -92,6 +97,8 @@ export class InformeComponent implements OnInit {
   iHasta = '';
   items = signal<InformeDia[]>([]);
   loading = signal(true);
+  /** Marca en `descargando`: no puede chocar con una fecha YYYY-MM-DD. */
+  readonly RANGO = '__rango__';
   descargando = signal<string | null>(null);
 
   ngOnInit() {
@@ -137,10 +144,25 @@ export class InformeComponent implements OnInit {
   async descargar(r: InformeDia) {
     this.descargando.set(r.fecha);
     try {
-      await this.exporter.informeDiaCsv(r, this.unidad());
+      await this.exporter.informeDiaCsv(r, this.unidad(), this.cat.productoActivo() ?? undefined);
     } catch (e: any) {
       const msg = String(e?.message || e || '');
       if (!/cancel/i.test(msg)) this.toast.show('No se pudo descargar el informe', 'error');
+    } finally {
+      this.descargando.set(null);
+    }
+  }
+
+  /** Un solo CSV con el resumen de cada dia del rango, el total y el detalle completo. */
+  async descargarRango() {
+    const items = this.items();
+    if (!items.length) return;
+    this.descargando.set(this.RANGO);
+    try {
+      await this.exporter.informeRangoCsv(items, this.iDesde, this.iHasta, this.unidad(), this.cat.productoActivo() ?? undefined);
+    } catch (e: any) {
+      const msg = String(e?.message || e || '');
+      if (!/cancel/i.test(msg)) this.toast.show('No se pudo descargar el informe del rango', 'error');
     } finally {
       this.descargando.set(null);
     }

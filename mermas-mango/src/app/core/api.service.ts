@@ -232,6 +232,51 @@ export class ApiService {
     return (await this.db.getRegistros()).find((r) => r._key === key);
   }
 
+  /**
+   * Detalle de un rango para exportar. Va al servidor paginado a proposito:
+   * la cache local solo guarda los ultimos 500 registros (ver refresh()), asi
+   * que los dias anteriores salian sin ninguna linea de detalle en el CSV.
+   * Sin red cae a la cache. Encima se superpone lo que sigue en la outbox.
+   */
+  async detalleRango(desde?: string, hasta?: string, idProducto?: number | null): Promise<LocalRegistro[]> {
+    if (this.online()) {
+      try {
+        const pagina = 500;
+        const tope = 50000;                       // freno duro por si el backend ignora el rango
+        const d = this.paramRango(desde), h = this.paramRango(hasta);
+        const servidor: LocalRegistro[] = [];
+        for (let skip = 0; skip < tope; skip += pagina) {
+          let params = new HttpParams().set('skip', String(skip)).set('limit', String(pagina));
+          if (d) params = params.set('desde', d);
+          if (h) params = params.set('hasta', h);
+          if (idProducto != null) params = params.set('id_producto', String(idProducto));
+          const data = await this.call(firstValueFrom(this.http.get<RegistroMermaOut[]>(this.base() + '/mermas', { params })));
+          const filas = (data || []).map((r) => this.serverShape(r));
+          servidor.push(...filas);
+          if (filas.length < pagina) break;
+        }
+        return this.conPendientes(servidor, desde, hasta, idProducto);
+      } catch (e) {
+        if (!(e as ApiError).network) throw e;
+      }
+    }
+    const local = await this.query({ desde, hasta, id_producto: idProducto ?? undefined, skip: 0, limit: 1000000 });
+    return local.items;
+  }
+
+  /** Lo que aun no se subio manda sobre lo del servidor; lo borrado en local se quita. */
+  private async conPendientes(servidor: LocalRegistro[], desde?: string, hasta?: string, idProducto?: number | null): Promise<LocalRegistro[]> {
+    const porKey = new Map(servidor.map((r) => [r._key, r]));
+    const locales = (await this.db.getRegistros()).filter((r) => r._pending || r._deleted);
+    locales.forEach((r) => {
+      const entra = !r._deleted &&
+        this.enRango(r.fecha_hora, desde, hasta) &&
+        (idProducto == null || Number(r.id_producto) === Number(idProducto));
+      if (entra) porKey.set(r._key, r); else porKey.delete(r._key);
+    });
+    return Array.from(porKey.values());
+  }
+
   // ---------- informe (agrupado por dia) ----------
   async informe(desde?: string, hasta?: string, unidad: Unidad = 'kg', idProducto?: number | null): Promise<{ items: InformeDia[]; offline: boolean }> {
     if (this.online()) {
