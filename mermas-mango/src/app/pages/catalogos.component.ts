@@ -6,6 +6,7 @@ import { NetworkService } from '../core/network.service';
 import { ToastService } from '../core/toast.service';
 import { AuthService } from '../core/auth.service';
 import { ApiError, CatalogoItem, CatalogoTipo } from '../core/models';
+import { fmtKg, numKg } from '../core/util';
 
 const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string; icono: string; ph: string }> = {
   productos: {
@@ -36,7 +37,23 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
     icono: 'fa-tags',
     ph: 'Maduro',
   },
+  lineas: {
+    titulo: 'Lineas',
+    sub: 'Lineas de produccion que aparecen al capturar. Son las mismas para todos los productos.',
+    singular: 'linea',
+    icono: 'fa-industry',
+    ph: 'L1',
+  },
+  contenedores: {
+    titulo: 'Contenedores',
+    sub: 'En que se pesa la merma. Su peso es la tara que se descuenta del peso bruto.',
+    singular: 'contenedor',
+    icono: 'fa-box-open',
+    ph: 'Caja chica',
+  },
 };
+
+const TIPOS = Object.keys(META) as CatalogoTipo[];
 
 @Component({
   selector: 'app-catalogos',
@@ -68,9 +85,17 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
       <button type="button" class="seg" [class.is-active]="tipo() === 'caracteristicas'" (click)="ir('caracteristicas')">
         <i class="fa-solid fa-tags" aria-hidden="true"></i> Caracteristicas
       </button>
+      @if (cat.soportaLineas()) {
+        <button type="button" class="seg" [class.is-active]="tipo() === 'lineas'" (click)="ir('lineas')">
+          <i class="fa-solid fa-industry" aria-hidden="true"></i> Lineas
+        </button>
+        <button type="button" class="seg" [class.is-active]="tipo() === 'contenedores'" (click)="ir('contenedores')">
+          <i class="fa-solid fa-box-open" aria-hidden="true"></i> Contenedores
+        </button>
+      }
     </div>
 
-    @if (tipo() !== 'productos' && hayProductos()) {
+    @if (porProducto() && hayProductos()) {
       <div class="card form" style="margin-bottom:16px">
         <div class="field">
           <label for="cat_prod">PRODUCTO</label>
@@ -111,7 +136,15 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
             <span class="switch__label">Se aprovecha (si no, cuenta como residuo)</span>
           </label>
         }
-        @if (tipo() !== 'productos' && tipo() !== 'variedades' && hayProductos()) {
+        @if (tipo() === 'contenedores') {
+          <div class="field">
+            <label for="cat_peso">PESO DEL CONTENEDOR (KG) <span class="req">*</span></label>
+            <input id="cat_peso" name="peso" [(ngModel)]="nuevoPeso" inputmode="decimal" placeholder="2.50" autocomplete="off" [class.is-invalid]="!!errPeso()" />
+            <small class="hint">Es la tara: al capturar con este contenedor se resta del peso bruto.</small>
+            @if (errPeso()) { <span class="error">{{ errPeso() }}</span> }
+          </div>
+        }
+        @if (admiteGlobal()) {
           <label class="switch">
             <input type="checkbox" name="glob" [(ngModel)]="nuevaGlobal" />
             <span class="switch__track"><span class="switch__thumb"></span></span>
@@ -154,12 +187,15 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
                     {{ it.aprovechable ? 'Se aprovecha' : 'Residuo' }}
                   </span>
                 }
-                @if (tipo() !== 'productos' && tipo() !== 'variedades' && hayProductos() && it.id_producto == null) {
+                @if (admiteGlobal() && it.id_producto == null) {
                   <span class="badge"><i class="fa-solid fa-globe" aria-hidden="true"></i> Todos</span>
                 }
               </div>
               @if (tipo() === 'productos') {
                 <div class="item__meta"><span><i class="fa-solid fa-bone" aria-hidden="true"></i>{{ it.etiqueta_no_aprovechable }}</span></div>
+              }
+              @if (tipo() === 'contenedores') {
+                <div class="item__meta"><span><i class="fa-solid fa-weight-hanging" aria-hidden="true"></i>Tara {{ kg(it.peso_kg) }} kg</span></div>
               }
             </div>
             <div class="item__actions">
@@ -237,7 +273,15 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
               <span class="switch__label">Se aprovecha (si no, cuenta como residuo)</span>
             </label>
           }
-          @if (tipo() !== 'productos' && tipo() !== 'variedades' && hayProductos()) {
+          @if (tipo() === 'contenedores') {
+            <div class="field">
+              <label for="cat_epeso">PESO DEL CONTENEDOR (KG)</label>
+              <input id="cat_epeso" name="epeso" [(ngModel)]="ePeso" inputmode="decimal" autocomplete="off" [class.is-invalid]="!!ePesoErr()" />
+              <small class="hint">Corregirlo no cambia las mermas ya capturadas: cada una guardo la tara de ese momento.</small>
+              @if (ePesoErr()) { <span class="error">{{ ePesoErr() }}</span> }
+            </div>
+          }
+          @if (admiteGlobal()) {
             <label class="switch">
               <input type="checkbox" name="eg" [(ngModel)]="eGlobal" />
               <span class="switch__track"><span class="switch__thumb"></span></span>
@@ -265,7 +309,9 @@ const META: Record<CatalogoTipo, { titulo: string; sub: string; singular: string
           Se eliminara <b>{{ it.nombre }}</b>.
           {{ tipo() === 'tipos-merma'
             ? 'Si ya se uso en alguna merma el servidor no lo permite (los registros quedarian sin tipo): desactivalo.'
-            : 'Si ya se uso en registros, es mejor desactivarla para conservar el historial.' }}
+            : tipo() === 'lineas' || tipo() === 'contenedores'
+              ? 'Si ya se uso en alguna merma el servidor no lo permite: desactivalo.'
+              : 'Si ya se uso en registros, es mejor desactivarla para conservar el historial.' }}
         </p>
         <div class="confirm__actions">
           <button class="btn btn--ghost" type="button" (click)="confirmDel.set(null)">Cancelar</button>
@@ -291,11 +337,13 @@ export class CatalogosComponent implements OnInit {
   loading = signal(true);
   guardando = signal(false);
 
-  nuevo = ''; nuevaEtq = ''; nuevaGlobal = false; nuevaAprov = false;
+  nuevo = ''; nuevaEtq = ''; nuevaGlobal = false; nuevaAprov = false; nuevoPeso = '';
   errNuevo = signal('');
+  errPeso = signal('');
 
   editando = signal<CatalogoItem | null>(null);
-  eNombre = ''; eEtq = ''; eActivo = true; eGlobal = false; eAprov = false;
+  eNombre = ''; eEtq = ''; eActivo = true; eGlobal = false; eAprov = false; ePeso = '';
+  ePesoErr = signal('');
   eColor = '#9E9E9E';
   eErr = signal('');
   eColorErr = signal('');
@@ -310,17 +358,23 @@ export class CatalogosComponent implements OnInit {
   emptyTitle = signal('Sin registros');
   emptySub = signal('Agrega el primero con el formulario de arriba.');
 
+  kg = fmtKg;
   meta() { return META[this.tipo()]; }
   hayProductos() { return this.cat.soportaProductos() && this.productos().length > 0; }
+  /** Variedades, caracteristicas y tipos se piden y se dan de alta dentro de un producto. */
+  porProducto() { return !this.cat.esGlobal(this.tipo()); }
+  /** Tipos y caracteristicas pueden aplicar a todos los productos; las variedades no. */
+  admiteGlobal() { return (this.tipo() === 'tipos-merma' || this.tipo() === 'caracteristicas') && this.hayProductos(); }
 
   ngOnInit() {
     this.route.paramMap.subscribe((p) => {
       const t = p.get('tipo');
-      this.tipo.set(t === 'caracteristicas' ? 'caracteristicas' : t === 'productos' ? 'productos' : t === 'tipos-merma' ? 'tipos-merma' : 'variedades');
+      this.tipo.set(TIPOS.includes(t as CatalogoTipo) ? (t as CatalogoTipo) : 'variedades');
       this.editando.set(null);
       this.confirmDel.set(null);
       this.errNuevo.set('');
-      this.nuevo = ''; this.nuevaEtq = ''; this.nuevaGlobal = false; this.nuevaAprov = false;
+      this.errPeso.set('');
+      this.nuevo = ''; this.nuevaEtq = ''; this.nuevaGlobal = false; this.nuevaAprov = false; this.nuevoPeso = '';
       this.cargar();
     });
   }
@@ -359,7 +413,7 @@ export class CatalogosComponent implements OnInit {
 
   /** Producto con el que se piden y se dan de alta los items del catalogo actual. */
   private contexto(): number | null {
-    return this.tipo() === 'productos' || !this.hayProductos() ? null : this.idProducto();
+    return !this.porProducto() || !this.hayProductos() ? null : this.idProducto();
   }
 
   async crear() {
@@ -371,15 +425,20 @@ export class CatalogosComponent implements OnInit {
     const datos: CatalogoDatos = { nombre };
     if (this.tipo() === 'productos') {
       datos.etiqueta_no_aprovechable = this.nuevaEtq.trim() || 'Cascara y Hueso';
-    } else {
+    } else if (this.tipo() === 'contenedores') {
+      const peso = this.pesoValido(this.nuevoPeso);
+      this.errPeso.set(peso === null ? 'Escribe un peso de 0 o mas, con hasta 6 decimales.' : '');
+      if (peso === null) return;
+      datos.peso_kg = peso;
+    } else if (this.porProducto()) {
       if (this.tipo() === 'tipos-merma') datos.aprovechable = this.nuevaAprov;
-      if (this.hayProductos()) datos.id_producto = this.tipo() !== 'variedades' && this.nuevaGlobal ? null : this.idProducto();
+      if (this.hayProductos()) datos.id_producto = this.admiteGlobal() && this.nuevaGlobal ? null : this.idProducto();
     }
 
     this.guardando.set(true);
     try {
       await this.cat.crear(this.tipo(), datos);
-      this.nuevo = ''; this.nuevaEtq = ''; this.nuevaGlobal = false; this.nuevaAprov = false;
+      this.nuevo = ''; this.nuevaEtq = ''; this.nuevaGlobal = false; this.nuevaAprov = false; this.nuevoPeso = '';
       this.toast.show('Agregado', 'ok');
       await this.cargar();
     } catch (e) {
@@ -399,6 +458,8 @@ export class CatalogosComponent implements OnInit {
     this.eImgErr.set('');
     this.eAprov = it.aprovechable === true;
     this.eGlobal = it.id_producto == null;
+    this.ePeso = numKg(it.peso_kg);
+    this.ePesoErr.set('');
     this.eErr.set('');
     this.editando.set(it);
   }
@@ -418,9 +479,14 @@ export class CatalogosComponent implements OnInit {
       if (!color) { this.eColorErr.set('Usa un color en formato #RRGGBB.'); return; }
       this.eColorErr.set('');
       if (color !== (it.color || '').toUpperCase()) cambios.color = color;
-    } else {
+    } else if (this.tipo() === 'contenedores') {
+      const peso = this.pesoValido(this.ePeso);
+      this.ePesoErr.set(peso === null ? 'Escribe un peso de 0 o mas, con hasta 6 decimales.' : '');
+      if (peso === null) return;
+      if (Number(peso) !== Number(it.peso_kg)) cambios.peso_kg = peso;
+    } else if (this.porProducto()) {
       if (this.tipo() === 'tipos-merma' && this.eAprov !== (it.aprovechable === true)) cambios.aprovechable = this.eAprov;
-      if (this.tipo() !== 'variedades' && this.hayProductos()) {
+      if (this.admiteGlobal()) {
         const destino = this.eGlobal ? null : this.idProducto();
         if (destino !== (it.id_producto ?? null)) cambios.id_producto = destino;
       }
@@ -468,6 +534,12 @@ export class CatalogosComponent implements OnInit {
     } catch (e) {
       this.manejarError(e as ApiError, 'No se pudo eliminar');
     }
+  }
+
+  /** Peso del contenedor como lo valida la API (>= 0, hasta 6 decimales); acepta coma decimal. Null si no vale. */
+  private pesoValido(valor: string): string | null {
+    const texto = String(valor ?? '').trim().replace(',', '.');
+    return /^\d+(\.\d{1,6})?$/.test(texto) ? texto : null;
   }
 
   /** '#e8a' y 'e8a33d' valen; devuelve '#E8A33D' o null si no es un color. */

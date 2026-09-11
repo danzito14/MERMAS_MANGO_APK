@@ -29,7 +29,13 @@ const PAGE_SIZE = 20;
     <form class="filters card" (ngSubmit)="filtrar()">
       <app-producto-selector />
       <div class="field"><label for="f_lote">LOTE</label><input id="f_lote" name="lote" [(ngModel)]="fLote" placeholder="Todos" autocomplete="off" spellcheck="false" autocapitalize="characters" /></div>
-      <div class="field"><label for="f_linea">LINEA</label><input id="f_linea" name="linea" [(ngModel)]="fLinea" placeholder="Todas" autocomplete="off" /></div>
+      <div class="field">
+        <label for="f_linea">LINEA</label>
+        <select id="f_linea" name="linea" [(ngModel)]="fLinea">
+          <option value="">Todas</option>
+          @for (l of lineas(); track l.id) { <option [value]="l.nombre">{{ l.nombre }}</option> }
+        </select>
+      </div>
       <div class="field">
         <label for="f_tipo">TIPO</label>
         <select id="f_tipo" name="tipo" [(ngModel)]="fTipo">
@@ -73,6 +79,7 @@ const PAGE_SIZE = 20;
                 @if (r.producto) { <span class="meta-cat"><i class="fa-solid fa-lemon" aria-hidden="true"></i>{{ r.producto }}</span> }
                 <span><i class="fa-solid fa-box" aria-hidden="true"></i>{{ r.lote }}</span>
                 <span><i class="fa-solid fa-industry" aria-hidden="true"></i>{{ r.linea_prod }}</span>
+                @if (r.contenedor) { <span><i class="fa-solid fa-box-open" aria-hidden="true"></i>{{ r.contenedor }}: bruto {{ kg(r.peso_bruto_kg) }} - tara {{ kg(r.tara_kg) }}</span> }
                 <span><i class="fa-solid fa-clock" aria-hidden="true"></i>{{ fecha(r.fecha_hora) }}</span>
                 @if (r.variedad) { <span class="meta-cat"><i class="fa-solid fa-seedling" aria-hidden="true"></i>{{ r.variedad }}</span> }
                 @if (r.caracteristica) { <span class="meta-cat"><i class="fa-solid fa-tags" aria-hidden="true"></i>{{ r.caracteristica }}</span> }
@@ -118,6 +125,7 @@ export class RegistrosComponent implements OnInit {
   fLote = ''; fLinea = ''; fTipo = ''; fDesde = ''; fHasta = '';
   all = signal<LocalRegistro[]>([]);
   tipos = signal<CatalogoItem[]>([]);
+  lineas = signal<CatalogoItem[]>([]);
 
   constructor() {
     // El producto se elige en la barra de arriba: al cambiarlo se recarga la lista.
@@ -147,6 +155,8 @@ export class RegistrosComponent implements OnInit {
     this.fDesde = s.desde;
     this.fHasta = s.hasta;
     this.cat.cargar('tipos-merma').then((t) => this.tipos.set(t.filter((x) => x.activo))).catch(() => {});
+    // Todas, no solo las activas: el historico pudo usar una linea que ya se desactivo.
+    this.cat.cargar('lineas').then((l) => this.lineas.set(l)).catch(() => {});
     this.iniciado = true;
     this.cargar(true);
   }

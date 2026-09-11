@@ -2,7 +2,9 @@
    NO es el backend real: guarda todo en memoria y no valida firmas JWT.
    Implementa: /auth/register, /auth/login (form-urlencoded), /auth/me, /mermas,
    /productos, /tipos-merma, /variedades y /caracteristicas (todos cuelgan de un producto;
-   el tipo de merma es un catalogo con bandera `aprovechable`, ya no un enum de dos valores).
+   el tipo de merma es un catalogo con bandera `aprovechable`, ya no un enum de dos valores),
+   y /lineas y /contenedores (globales). La merma lleva id_linea, y el peso va como cant_kg
+   (neto) o como peso_bruto_kg + id_contenedor (se resta la tara y se copia en el registro).
    Uso: node scripts/mock-api.mjs   (escucha en http://127.0.0.1:8000)
 */
 import http from "node:http";
@@ -44,6 +46,32 @@ addTipo("Aprovechable", true, null);   // global: sirve para todos los productos
 ["VALENCIA", "NAVEL"].forEach((n) => addCat("variedades", n, 2));
 ["Sobremaduro", "Maduro", "Verde", "Aguado"].forEach((n) => addCat("caracteristicas", n, null));
 addCat("caracteristicas", "Sin cascara", 2);   // exclusiva de naranja
+
+// Lineas y contenedores: globales, no cuelgan de un producto. Nombre unico sin distinguir mayusculas.
+let lineaSeq = 0, contSeq = 0;
+const lineas = [];
+const contenedores = [];
+function addLinea(nombre) { lineaSeq++; const l = { id: lineaSeq, nombre, activo: true }; lineas.push(l); return l; }
+function addContenedor(nombre, pesoKg) { contSeq++; const c = { id: contSeq, nombre, peso_kg: fmt(pesoKg), activo: true }; contenedores.push(c); return c; }
+["L1", "L2", "L3", "L4"].forEach((n) => addLinea(n));
+addContenedor("Caja chica", 2.5);
+addContenedor("Tina", 8);
+
+/**
+ * Pesos de una merma pesada en contenedor, como el backend real: neto = bruto - tara.
+ * `taraCopiada` es la que guardo el registro al capturarse: se respeta si no cambia el contenedor.
+ */
+function pesosConTara(bruto, idContenedor, taraCopiada) {
+  const c = contenedores.find((x) => x.id === Number(idContenedor)) || null;
+  if (taraCopiada == null) {
+    if (!c) return { error: `El contenedor ${idContenedor} no existe.` };
+    if (!c.activo) return { error: `El contenedor '${c.nombre}' esta inactivo.` };
+  }
+  const tara = Number(taraCopiada ?? c.peso_kg);
+  const b = Number(bruto);
+  if (b < tara) return { error: `El peso bruto (${fmt(b)} kg) es menor que la tara del contenedor '${c ? c.nombre : ""}' (${fmt(tara)} kg).` };
+  return { cant_kg: fmt(b - tara), peso_bruto_kg: fmt(b), tara_kg: fmt(tara), id_contenedor: Number(idContenedor), contenedor: c ? c.nombre : null };
+}
 
 function catNombre(tipo, id) {
   if (id == null) return null;
@@ -134,7 +162,7 @@ function buildReporte(registros, desde, hasta, unidad, idProducto) {
   src.forEach((r) => {
     const linea = r.linea_prod || "";
     const clave = (r.id_producto ?? "") + "|" + r.lote + "|" + linea;
-    const g = map[clave] || (map[clave] = { idProd: r.id_producto ?? null, prod: r.producto ?? null, lote: r.lote, linea, a: 0, c: 0, n: 0, vars: new Set(), cars: new Set(), tipos: {} });
+    const g = map[clave] || (map[clave] = { idProd: r.id_producto ?? null, prod: r.producto ?? null, lote: r.lote, idLinea: r.id_linea ?? null, linea, a: 0, c: 0, n: 0, vars: new Set(), cars: new Set(), tipos: {} });
     if (r.variedad) g.vars.add(r.variedad);
     if (r.caracteristica) g.cars.add(r.caracteristica);
     const kg = conv(+r.cant_kg, u);
@@ -146,7 +174,7 @@ function buildReporte(registros, desde, hasta, unidad, idProducto) {
   const lotes = Object.keys(map).sort().map((k) => {
     const g = map[k];
     const por_tipo = Object.values(g.tipos).map((t) => ({ id_tipo_merma: t.id_tipo_merma, tipo_merma: t.tipo_merma, aprovechable: t.aprovechable, cant: fmt(t._n) }));
-    return { id_producto: g.idProd, producto: g.prod, lote: g.lote, linea_prod: g.linea, variedades: Array.from(g.vars).sort(), caracteristicas: Array.from(g.cars).sort(), rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n, por_tipo };
+    return { id_producto: g.idProd, producto: g.prod, lote: g.lote, id_linea: g.idLinea, linea_prod: g.linea, variedades: Array.from(g.vars).sort(), caracteristicas: Array.from(g.cars).sort(), rezaga_aprovechable: fmt(g.a), rezaga_no_aprovechable: fmt(g.c), total_rezaga: fmt(g.a + g.c), num_registros: g.n, por_tipo };
   });
   return { desde: desde || null, hasta: hasta || null, unidad: u, lotes, total_aprovechable: fmt(tA), total_no_aprovechable: fmt(tC), total_rezaga: fmt(tA + tC), num_registros: tN };
 }
@@ -214,6 +242,62 @@ const server = http.createServer((req, res) => {
         return send(res, 200, { id_usuario: entry.id_usuario, username: uname, rol: entry.rol, activo: entry.activo });
       }
       if (req.method === "DELETE") { users.delete(uname); return send(res, 204, null); }
+    }
+
+    // ---- catalogos globales: /lineas y /contenedores ----
+    const gm = path.match(/^\/(lineas|contenedores)(?:\/(\d+))?$/);
+    if (gm) {
+      const esCont = gm[1] === "contenedores";
+      const lista = esCont ? contenedores : lineas;
+      const id = gm[2] ? +gm[2] : null;
+      const who = readToken(req);
+      if (!who) return send(res, 401, { detail: "No autenticado" });
+      if (req.method !== "GET" && !["admin", "supervisor"].includes(who.rol)) return send(res, 403, { detail: "Solo admin o supervisor pueden editar catalogos" });
+      const pesoMal = (v) => v == null || v === "" || isNaN(Number(v)) || Number(v) < 0;
+      const repetido = (nombre, exceptoId) => lista.some((x) => x.id !== exceptoId && x.nombre.toLowerCase() === nombre.toLowerCase());
+      const errPeso = { detail: [{ loc: ["body", "peso_kg"], msg: "Input should be greater than or equal to 0" }] };
+
+      if (req.method === "GET" && id === null) {
+        return send(res, 200, url.searchParams.get("solo_activos") === "true" ? lista.filter((x) => x.activo) : lista);
+      }
+      if (req.method === "POST" && id === null) {
+        let b = {}; try { b = JSON.parse(raw || "{}"); } catch {}
+        const nombre = String(b.nombre || "").trim();
+        if (!nombre) return send(res, 422, { detail: [{ loc: ["body", "nombre"], msg: "El nombre es obligatorio" }] });
+        if (repetido(nombre, null)) return send(res, 400, { detail: `Ya existe '${nombre}'.` });
+        if (!esCont) return send(res, 201, addLinea(nombre));
+        if (pesoMal(b.peso_kg)) return send(res, 422, errPeso);
+        return send(res, 201, addContenedor(nombre, Number(b.peso_kg)));
+      }
+      if (id !== null) {
+        const idx = lista.findIndex((x) => x.id === id);
+        if (idx === -1) return send(res, 404, { detail: "No encontrado." });
+        if (req.method === "GET") return send(res, 200, lista[idx]);
+        if (req.method === "PUT") {
+          let b = {}; try { b = JSON.parse(raw || "{}"); } catch {}
+          const nombre = b.nombre !== undefined ? String(b.nombre).trim() : null;
+          if (nombre === "") return send(res, 422, { detail: [{ loc: ["body", "nombre"], msg: "El nombre es obligatorio" }] });
+          if (nombre !== null && repetido(nombre, id)) return send(res, 400, { detail: `Ya existe '${nombre}'.` });
+          if (esCont && b.peso_kg !== undefined && pesoMal(b.peso_kg)) return send(res, 422, errPeso);
+          if (nombre !== null) {
+            lista[idx].nombre = nombre;
+            // Renombrar se ve en todo el historico (el backend real resuelve el nombre por id).
+            registros.forEach((r) => {
+              if (!esCont && r.id_linea === id) r.linea_prod = nombre;
+              if (esCont && r.id_contenedor === id) r.contenedor = nombre;
+            });
+          }
+          if (esCont && b.peso_kg !== undefined) lista[idx].peso_kg = fmt(b.peso_kg);   // no toca mermas: cada una guardo su tara
+          if (b.activo !== undefined) lista[idx].activo = !!b.activo;
+          return send(res, 200, lista[idx]);
+        }
+        if (req.method === "DELETE") {
+          if (registros.some((r) => (esCont ? r.id_contenedor : r.id_linea) === id)) return send(res, 409, { detail: "Ya se uso en alguna merma: desactivalo en vez de borrarlo." });
+          lista.splice(idx, 1);
+          return send(res, 204, null);
+        }
+      }
+      return send(res, 405, { detail: "Metodo no permitido" });
     }
 
     // ---- catalogo de tipos de merma ----
@@ -390,6 +474,10 @@ const server = http.createServer((req, res) => {
         if (desde || hasta) out = out.filter((r) => enRango(r.fecha_hora, desde, hasta));
         const idp = url.searchParams.get("id_producto");
         if (idp) out = out.filter((r) => Number(r.id_producto) === Number(idp));
+        const idl = url.searchParams.get("id_linea");
+        const idcont = url.searchParams.get("id_contenedor");
+        if (idl) out = out.filter((r) => Number(r.id_linea) === Number(idl));
+        if (idcont) out = out.filter((r) => Number(r.id_contenedor) === Number(idcont));
         const idv = url.searchParams.get("id_variedad");
         const idc = url.searchParams.get("id_caracteristica");
         if (idv) out = out.filter((r) => Number(r.id_variedad) === Number(idv));
@@ -433,16 +521,31 @@ const server = http.createServer((req, res) => {
       if (path === "/mermas" && req.method === "POST") {
         let b = {};
         try { b = JSON.parse(raw || "{}"); } catch {}
-        const n = Number(b.cant_kg);
-        if (isNaN(n) || n < 0) return send(res, 422, { detail: [{ type: "value_error", loc: ["body", "cant_kg"], msg: "Input should be greater than or equal to 0", input: b.cant_kg }] });
+        // Peso de UNA forma: cant_kg (neto), o peso_bruto_kg + id_contenedor. Igual que el schema real.
+        const conCont = b.peso_bruto_kg != null || b.id_contenedor != null;
+        const errBody = (msg) => send(res, 422, { detail: [{ type: "value_error", loc: ["body"], msg: "Value error, " + msg }] });
+        if (b.cant_kg != null && conCont) return errBody("Manda el peso de una sola forma: cant_kg (neto), o peso_bruto_kg + id_contenedor para que la API descuente la tara.");
+        if (b.cant_kg == null && !conCont) return errBody("Falta el peso: manda cant_kg, o peso_bruto_kg + id_contenedor.");
+        if (conCont && (b.peso_bruto_kg == null || b.id_contenedor == null)) return errBody("peso_bruto_kg e id_contenedor van juntos: manda los dos.");
+        const pesoIn = conCont ? b.peso_bruto_kg : b.cant_kg;
+        if (isNaN(Number(pesoIn)) || Number(pesoIn) < 0) return send(res, 422, { detail: [{ type: "value_error", loc: ["body", conCont ? "peso_bruto_kg" : "cant_kg"], msg: "Input should be greater than or equal to 0", input: pesoIn }] });
+        // La linea ya no es texto libre: un front sin actualizar que manda linea_prod rebota aqui.
+        if (b.id_linea == null) return send(res, 422, { detail: [{ type: "missing", loc: ["body", "id_linea"], msg: "Field required" }] });
+        const linea = lineas.find((l) => l.id === Number(b.id_linea));
+        if (!linea) return send(res, 400, { detail: `La linea ${b.id_linea} no existe.` });
+        if (!linea.activo) return send(res, 400, { detail: `La linea '${linea.nombre}' esta inactiva.` });
         if (b.id_tipo_merma == null) return send(res, 422, { detail: [{ loc: ["body", "id_tipo_merma"], msg: "El tipo de merma es obligatorio" }] });
         const mal = validarCombinacion(b.id_producto, b.id_tipo_merma, b.id_variedad, b.id_caracteristica);
         if (mal) return send(res, 400, { detail: mal });
+        const pesos = conCont
+          ? pesosConTara(b.peso_bruto_kg, b.id_contenedor, null)
+          : { cant_kg: fmt(b.cant_kg), peso_bruto_kg: null, tara_kg: null, id_contenedor: null, contenedor: null };
+        if (pesos.error) return send(res, 400, { detail: pesos.error });
         const tipoRec = tipoDe(b.id_tipo_merma);
         const rec = {
-          id_registro: ++seq, cant_kg: fmt(n),
+          id_registro: ++seq, ...pesos,
           id_tipo_merma: tipoRec.id, tipo_merma: tipoRec.nombre, aprovechable: tipoRec.aprovechable,
-          lote: b.lote, linea_prod: b.linea_prod,
+          lote: b.lote, id_linea: linea.id, linea_prod: linea.nombre,
           fecha_hora: b.fecha_hora || new Date().toISOString().slice(0, 19),
           id_usuario: (users.get(who.username) || {}).id_usuario, registrado_por: who.username,
           id_producto: Number(b.id_producto), producto: prodNombre(b.id_producto),
@@ -469,12 +572,34 @@ const server = http.createServer((req, res) => {
           };
           const malPut = validarCombinacion(fin.id_producto, fin.id_tipo_merma, fin.id_variedad, fin.id_caracteristica);
           if (malPut) return send(res, 400, { detail: malPut });
-          ["lote", "linea_prod", "fecha_hora"].forEach((k) => { if (b[k] !== undefined) registros[idx][k] = b[k]; });
+          const reg = registros[idx];
+          let lineaPut = null;
+          if (b.id_linea != null) {
+            lineaPut = lineas.find((l) => l.id === Number(b.id_linea));
+            if (!lineaPut) return send(res, 400, { detail: `La linea ${b.id_linea} no existe.` });
+            if (!lineaPut.activo) return send(res, 400, { detail: `La linea '${lineaPut.nombre}' esta inactiva.` });
+          }
+          // Peso: igual que _pesos_update del backend real. Todo se valida antes de escribir.
+          let pesosPut = null;
+          if (b.cant_kg != null) {
+            if (b.peso_bruto_kg != null || b.id_contenedor != null) return send(res, 422, { detail: [{ type: "value_error", loc: ["body"], msg: "Value error, Manda el peso de una sola forma: cant_kg (neto), o peso_bruto_kg + id_contenedor para que la API descuente la tara." }] });
+            if (reg.id_contenedor != null) return send(res, 400, { detail: "Este registro se capturo con contenedor: su peso neto sale de restar la tara. Corrige peso_bruto_kg (o cambia id_contenedor), no cant_kg." });
+            pesosPut = { cant_kg: fmt(b.cant_kg) };
+          } else if (b.peso_bruto_kg != null || b.id_contenedor != null) {
+            const bruto = b.peso_bruto_kg ?? reg.peso_bruto_kg;
+            const idCont = b.id_contenedor ?? reg.id_contenedor;
+            if (bruto == null || idCont == null) return send(res, 400, { detail: "Este registro no tenia contenedor: para pasarlo a peso con contenedor manda peso_bruto_kg e id_contenedor juntos." });
+            const mismo = Number(idCont) === Number(reg.id_contenedor) && reg.tara_kg != null;
+            pesosPut = pesosConTara(bruto, idCont, mismo ? reg.tara_kg : null);
+            if (pesosPut.error) return send(res, 400, { detail: pesosPut.error });
+          }
+          ["lote", "fecha_hora"].forEach((k) => { if (b[k] !== undefined) reg[k] = b[k]; });
+          if (lineaPut) { reg.id_linea = lineaPut.id; reg.linea_prod = lineaPut.nombre; }
+          if (pesosPut) Object.assign(reg, pesosPut);
           if (b.id_tipo_merma !== undefined) {
             const t = tipoDe(b.id_tipo_merma);
             registros[idx].id_tipo_merma = t.id; registros[idx].tipo_merma = t.nombre; registros[idx].aprovechable = t.aprovechable;
           }
-          if (b.cant_kg !== undefined) registros[idx].cant_kg = fmt(b.cant_kg);
           if (b.id_producto !== undefined) { registros[idx].id_producto = Number(b.id_producto); registros[idx].producto = prodNombre(b.id_producto); }
           if (b.id_variedad !== undefined) { registros[idx].id_variedad = b.id_variedad ?? null; registros[idx].variedad = catNombre("variedades", b.id_variedad); }
           if (b.id_caracteristica !== undefined) { registros[idx].id_caracteristica = b.id_caracteristica ?? null; registros[idx].caracteristica = catNombre("caracteristicas", b.id_caracteristica); }

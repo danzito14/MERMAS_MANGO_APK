@@ -4,10 +4,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { CatalogoService } from '../core/catalogo.service';
 import { ToastService } from '../core/toast.service';
-import { ApiError, CatalogoItem } from '../core/models';
-import { numKg } from '../core/util';
-
-type Linea = 'L1' | 'L2' | 'L3' | 'L4';
+import { ApiError, CatalogoItem, LocalRegistro } from '../core/models';
+import { fmtKg, numKg } from '../core/util';
 
 /** cant_kg es DECIMAL(16,6): 16 - 6 = 10 digitos enteros como maximo. */
 const MAX_ENTEROS = 10;
@@ -45,11 +43,16 @@ const MAX_ENTEROS = 10;
 
       <div class="field">
         <label>LINEA DE PRODUCCION <span class="req">*</span></label>
-        <div class="segmented" role="group" aria-label="Linea de produccion">
-          @for (l of lineas; track l) {
-            <button type="button" class="seg" [class.is-active]="linea() === l" (click)="linea.set(l)">{{ l }}</button>
-          }
-        </div>
+        @if (lineas().length) {
+          <div class="segmented" role="group" aria-label="Linea de produccion" [class.seg-invalid]="!!err()['id_linea']">
+            @for (l of lineas(); track l.id) {
+              <button type="button" class="seg" [class.is-active]="idLinea() === l.id" (click)="setLinea(l.id)">{{ l.nombre }}</button>
+            }
+          </div>
+        } @else {
+          <small class="hint">No hay lineas registradas. Pide a un administrador que las agregue en Catalogos.</small>
+        }
+        @if (err()['id_linea']) { <span class="error">{{ err()['id_linea'] }}</span> }
       </div>
 
       <div class="field">
@@ -111,9 +114,28 @@ const MAX_ENTEROS = 10;
         </div>
       }
 
+      @if (contenedores().length) {
+        <div class="field">
+          <label>CONTENEDOR</label>
+          <div class="segmented segmented--mini" role="group" aria-label="Contenedor">
+            @if (!contenedorFijo()) {
+              <button type="button" class="seg seg--mini" [class.is-active]="idContenedor() === null" (click)="setContenedor(null)">Sin contenedor</button>
+            }
+            @for (c of contenedores(); track c.id) {
+              <button type="button" class="seg seg--mini" [class.is-active]="idContenedor() === c.id" (click)="setContenedor(c.id)">{{ c.nombre }} ({{ kg(c.peso_kg) }} kg)</button>
+            }
+          </div>
+          <small class="hint">
+            {{ contenedorFijo()
+              ? 'Se capturo con contenedor: corrige el peso bruto o cambia de contenedor.'
+              : 'Si pesas dentro de un contenedor, eligelo y escribe el peso bruto: se descuenta su peso.' }}
+          </small>
+        </div>
+      }
+
       @if (tiposSel().length > 1) {
         <div class="field">
-          <label>CANTIDADES (KG) <span class="req">*</span></label>
+          <label>{{ etiquetaPeso(true) }} <span class="req">*</span></label>
           @for (t of tiposSelItems(); track t.id) {
             <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px">
               <span style="flex:1; min-width:0; display:flex; align-items:center; gap:6px">
@@ -125,15 +147,16 @@ const MAX_ENTEROS = 10;
                      [attr.aria-label]="'Cantidad de ' + t.nombre" [class.is-invalid]="!!err()['cant_' + t.id]" />
             </div>
             @if (err()['cant_' + t.id]) { <span class="error">{{ t.nombre }}: {{ err()['cant_' + t.id] }}</span> }
+            @else if (idContenedor() !== null && cantidadDe(t.id)) { <small class="hint">{{ t.nombre }}: {{ pistaNeto(t.id) }}</small> }
           }
-          <small class="hint">Se guarda un registro por tipo, todos con el mismo lote y linea.</small>
+          <small class="hint">Se guarda un registro por tipo, todos con el mismo lote, linea{{ idContenedor() !== null ? ' y contenedor' : '' }}.</small>
         </div>
       } @else {
         <div class="field">
-          <label for="c_cant">CANTIDAD (KG) <span class="req">*</span></label>
+          <label for="c_cant">{{ etiquetaPeso(false) }} <span class="req">*</span></label>
           <input id="c_cant" type="text" inputmode="decimal" [value]="cantidadDe(claveUnica())" (input)="onCant($event, claveUnica())"
                  placeholder="0.00" autocomplete="off" [class.is-invalid]="!!err()['cant_' + claveUnica()]" />
-          <small class="hint">No negativos. Hasta 10 enteros y 6 decimales.</small>
+          <small class="hint">{{ idContenedor() !== null ? pistaNeto(claveUnica()) : 'No negativos. Hasta 10 enteros y 6 decimales.' }}</small>
           @if (err()['cant_' + claveUnica()]) { <span class="error">{{ err()['cant_' + claveUnica()] }}</span> }
         </div>
       }
@@ -165,8 +188,15 @@ export class CapturaComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
-  readonly lineas: Linea[] = ['L1', 'L2', 'L3', 'L4'];
-  linea = signal<Linea>('L1');
+  kg = fmtKg;
+  lineas = signal<CatalogoItem[]>([]);
+  idLinea = signal<number | null>(null);
+  contenedores = signal<CatalogoItem[]>([]);
+  /** null = sin contenedor: lo tecleado es el neto. Con contenedor es el bruto y la API resta la tara. */
+  idContenedor = signal<number | null>(null);
+  /** Al editar: contenedor y tara con que se capturo (la API conserva esa tara si no cambias de contenedor). */
+  private contenedorOriginal = signal<number | null>(null);
+  private taraOriginal = signal<number | null>(null);
   lote = signal('');
   idProducto = signal<number | null>(null);
   /** Tipos marcados: uno solo es lo normal, varios guardan un registro por cada uno. */
@@ -197,6 +227,49 @@ export class CapturaComponent implements OnInit {
   cantidadDe(id: number): string { return this.cants()[id] || ''; }
 
   /**
+   * Un registro que ya se capturo con contenedor no puede volver a peso neto:
+   * la API rechaza cant_kg en ese caso (400) y solo deja corregir el bruto o el contenedor.
+   */
+  contenedorFijo(): boolean { return this.editKey() !== null && this.contenedorOriginal() !== null; }
+
+  /** Tara que se va a descontar: la copiada al capturar si no cambias de contenedor, igual que la API. */
+  tara(): number {
+    const id = this.idContenedor();
+    if (id === null) return 0;
+    if (id === this.contenedorOriginal() && this.taraOriginal() !== null) return this.taraOriginal()!;
+    return Number(this.cat.buscar('contenedores', id)?.peso_kg) || 0;
+  }
+
+  /** La etiqueta dice que numero se espera: con contenedor el bruto, sin el, el neto. */
+  etiquetaPeso(varios: boolean): string {
+    if (this.idContenedor() !== null) return varios ? 'PESOS BRUTOS (KG)' : 'PESO BRUTO (KG)';
+    if (this.contenedores().length) return varios ? 'PESOS NETOS (KG)' : 'PESO NETO (KG)';
+    return varios ? 'CANTIDADES (KG)' : 'CANTIDAD (KG)';
+  }
+
+  /** Vista previa del neto que va a guardar la API. */
+  pistaNeto(idTipo: number): string {
+    const tara = this.tara();
+    const raw = this.cantidadDe(idTipo);
+    const bruto = Number(raw);
+    if (!raw || isNaN(bruto)) return 'Se descuenta la tara de ' + fmtKg(tara) + ' kg.';
+    if (bruto < tara) return 'Es menor que la tara del contenedor (' + fmtKg(tara) + ' kg).';
+    return 'Neto: ' + fmtKg(bruto - tara) + ' kg (tara ' + fmtKg(tara) + ' kg).';
+  }
+
+  setLinea(id: number) {
+    this.idLinea.set(id);
+    this.err.update((e) => { const { id_linea, ...resto } = e; return resto; });
+  }
+
+  setContenedor(id: number | null) {
+    if (id === null && this.contenedorFijo()) return;
+    this.idContenedor.set(id);
+    // Cambia lo que significa el numero tecleado: los errores de cantidad ya no aplican.
+    this.err.update((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('cant_'))));
+  }
+
+  /**
    * La caracteristica solo se pide si alguno de los tipos marcados se aprovecha:
    * en un residuo la API la rechaza con 400.
    */
@@ -219,16 +292,28 @@ export class CapturaComponent implements OnInit {
   private async prefill(key: string) {
     const r = await this.api.getByKey(key);
     if (!r) { this.toast.show('Registro no encontrado', 'error'); this.router.navigateByUrl('/registros'); return; }
-    this.linea.set(/^L[1-4]$/.test(r.linea_prod) ? (r.linea_prod as Linea) : 'L1');
+    this.idLinea.set(this.lineaDe(r));
+    this.idContenedor.set(r.id_contenedor ?? null);
+    this.contenedorOriginal.set(r.id_contenedor ?? null);
+    this.taraOriginal.set(r.tara_kg != null ? Number(r.tara_kg) : null);
     const idTipo = r.id_tipo_merma ?? 0;
     this.tiposSel.set(idTipo ? [idTipo] : []);
     this.lote.set(String(r.lote || '').toUpperCase());
-    this.cants.set({ [idTipo]: numKg(r.cant_kg) });
+    // Con contenedor lo que se corrige es el bruto: el neto sale de la resta.
+    const conBruto = r.id_contenedor != null && r.peso_bruto_kg != null;
+    this.cants.set({ [idTipo]: numKg(conBruto ? r.peso_bruto_kg : r.cant_kg) });
     this.idVariedad.set(r.id_variedad ?? null);
     this.idCaracteristica.set(r.id_caracteristica ?? null);
     // El producto del registro manda sobre el preferido, y arrastra sus catalogos.
     if (r.id_producto != null) await this.setProducto(r.id_producto, true);
     else this.aplicarVisibles();
+  }
+
+  /** La linea del registro. Los capturados antes del catalogo de lineas solo traen el nombre. */
+  private lineaDe(r: LocalRegistro): number | null {
+    if (r.id_linea != null) return r.id_linea;
+    const nombre = (r.linea_prod || '').toLowerCase();
+    return this.cat.de('lineas').find((l) => l.nombre.toLowerCase() === nombre)?.id ?? null;
   }
 
   private async cargarCatalogos() {
@@ -290,6 +375,13 @@ export class CapturaComponent implements OnInit {
     this.tipos.set(visTipos);
     this.variedades.set(vis(this.cat.de('variedades', id), this.idVariedad()));
     this.caracteristicas.set(vis(this.cat.de('caracteristicas', id), this.idCaracteristica()));
+    this.lineas.set(vis(this.cat.de('lineas'), this.idLinea()));
+    // Al capturar solo los activos (la API rechaza uno inactivo); al editar se deja ver el del registro.
+    this.contenedores.set(vis(this.cat.de('contenedores'), this.editKey() ? this.idContenedor() : null));
+    const idCont = this.idContenedor();
+    if (idCont !== null && !this.contenedorFijo() && !this.contenedores().some((c) => c.id === idCont)) this.idContenedor.set(null);
+    // Como antes con L1: el formulario abre con la primera linea marcada.
+    if (this.idLinea() === null && !this.editKey() && this.lineas().length) this.idLinea.set(this.lineas()[0].id);
     // El formulario abre con el tipo aprovechable marcado (como antes de que se
     // pudieran marcar varios): si no, la caracteristica no se ve al entrar y
     // parece que falta. Para capturar solo residuo se desmarca.
@@ -368,14 +460,23 @@ export class CapturaComponent implements OnInit {
     return '';
   }
 
+  /** Con contenedor, el bruto no puede pesar menos que el contenedor (la API responde 400). */
+  private errorTara(raw: string): string {
+    if (this.idContenedor() === null) return '';
+    const tara = this.tara();
+    return Number(raw) < tara ? 'El peso bruto (' + fmtKg(raw) + ' kg) es menor que la tara del contenedor (' + fmtKg(tara) + ' kg).' : '';
+  }
+
   private validar(): Record<string, string> {
     const e: Record<string, string> = {};
     // Una cantidad por cada tipo marcado (sin tipo aun, se revisa el campo suelto).
     const claves = this.tiposSel().length ? this.tiposSel() : [0];
     claves.forEach((id) => {
-      const error = this.errorCantidad(this.cantidadDe(id).trim());
+      const raw = this.cantidadDe(id).trim();
+      const error = this.errorCantidad(raw) || this.errorTara(raw);
       if (error) e['cant_' + id] = error;
     });
+    if (this.idLinea() === null) e['id_linea'] = this.lineas().length ? 'Elige la linea.' : 'No hay lineas en el catalogo.';
 
     const lote = this.lote().trim();
     if (!lote) e['lote'] = 'El lote es obligatorio.';
@@ -433,6 +534,8 @@ export class CapturaComponent implements OnInit {
       } else if (err?.status === 400) {
         // Combinacion invalida (variedad o caracteristica de otro producto): se resincroniza el catalogo.
         this.toast.show(typeof err.detail === 'string' ? err.detail : 'Esa combinacion no es valida para el producto', 'error');
+        // Tambien pudo ser una linea o un contenedor desactivado, o una tara que cambio en el catalogo.
+        await Promise.all([this.cat.cargar('lineas'), this.cat.cargar('contenedores')]).catch(() => {});
         await this.setProducto(this.idProducto(), true);
       } else if (err?.status === 403) this.toast.show('No tienes permiso para esta accion', 'error');
       else if (err?.status === 404) this.toast.show('El registro ya no existe', 'error');
@@ -444,15 +547,18 @@ export class CapturaComponent implements OnInit {
 
   /** El registro que se manda para un tipo: lo comun del formulario + su cantidad. */
   private datosDe(idTipo: number): any {
+    const cantidad = this.cantidadDe(idTipo).trim();
     const data: any = {
-      cant_kg: this.cantidadDe(idTipo).trim(),
       id_tipo_merma: idTipo,
       lote: this.lote().trim().toUpperCase(),
-      linea_prod: this.linea(),
+      id_linea: this.idLinea(),
       id_variedad: this.idVariedad(),
       // un residuo no lleva caracteristica: se manda null explicito (importa al editar).
       id_caracteristica: this.aprovechable(idTipo) ? this.idCaracteristica() : null,
     };
+    // Con contenedor lo tecleado es el BRUTO y la API resta la tara; sin contenedor es el neto.
+    if (this.idContenedor() !== null) { data.peso_bruto_kg = cantidad; data.id_contenedor = this.idContenedor(); }
+    else data.cant_kg = cantidad;
     // Solo se manda si el backend maneja productos (no romper contra la version anterior).
     if (this.cat.soportaProductos() && this.idProducto() != null) data.id_producto = this.idProducto();
     return data;
@@ -471,8 +577,9 @@ export class CapturaComponent implements OnInit {
   private limpiarTrasGuardar() {
     this.cants.set({});
     if (this.keep) return;
-    // El producto se conserva: es la configuracion de la sesion de captura.
-    this.linea.set('L1'); this.lote.set('');
+    // El producto y el contenedor se conservan: son la configuracion de la sesion de captura
+    // (se sigue pesando en la misma caja). La etiqueta del campo avisa que el numero es bruto.
+    this.idLinea.set(this.lineas()[0]?.id ?? null); this.lote.set('');
     this.tiposSel.set([]); this.idVariedad.set(null); this.idCaracteristica.set(null);
     this.aplicarVisibles();
   }

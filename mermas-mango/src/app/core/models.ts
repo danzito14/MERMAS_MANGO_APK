@@ -13,7 +13,7 @@ export const TIPO_LEGACY_RESIDUO = -2;
 export type Unidad = 'kg' | 'lb';
 
 /** Catalogos editables del backend (el valor es la ruta: /productos, /tipos-merma, ...). */
-export type CatalogoTipo = 'productos' | 'tipos-merma' | 'variedades' | 'caracteristicas';
+export type CatalogoTipo = 'productos' | 'tipos-merma' | 'variedades' | 'caracteristicas' | 'lineas' | 'contenedores';
 
 /** Item de catalogo ya normalizado (la API puede usar id_producto / id_variedad / id_caracteristica). */
 export interface CatalogoItem {
@@ -30,6 +30,8 @@ export interface CatalogoItem {
   color?: string;
   /** Solo productos: ruta relativa de su imagen ("/static/productos/1-ab12.png"), o null. */
   imagen_url?: string | null;
+  /** Solo contenedores: peso del contenedor vacio, que es la tara que se descuenta ("2.500000"). */
+  peso_kg?: string;
 }
 
 /** Cuanto se acumulo de un tipo de merma concreto (desglose de informes y reportes). */
@@ -43,12 +45,17 @@ export interface TotalPorTipo {
 /** Registro tal como lo devuelve la API. */
 export interface RegistroMermaOut {
   id_registro: number;
-  cant_kg: string;          // decimal como texto: "12.50"
+  cant_kg: string;          // NETO, decimal como texto: "12.50" (lo que suman los reportes)
+  peso_bruto_kg?: string | null;   // solo si se peso en contenedor
+  tara_kg?: string | null;         // peso del contenedor, copiado al capturar
+  id_contenedor?: number | null;
+  contenedor?: string | null;
   id_tipo_merma?: number | null;
   tipo_merma: string;       // nombre resuelto: "Cascara/Hueso" (el backend anterior mandaba el enum)
   aprovechable?: boolean;
   lote: string;
-  linea_prod: string;
+  id_linea?: number | null;        // el backend anterior no lo manda: la linea era texto libre
+  linea_prod: string;              // nombre resuelto de la linea: "L1"
   fecha_hora: string;       // ISO 8601
   id_usuario?: number | null;
   registrado_por?: string | null;  // username de quien registro
@@ -67,11 +74,16 @@ export interface LocalRegistro {
   _op: 'create' | 'update' | null;
   _deleted: boolean;
   id_registro: number | null;
-  cant_kg: string;
+  cant_kg: string;          // neto
+  peso_bruto_kg?: string | null;
+  tara_kg?: string | null;
+  id_contenedor?: number | null;
+  contenedor?: string | null;
   id_tipo_merma: number | null;
   tipo_merma: string;       // nombre para mostrar
   aprovechable: boolean;    // lo que decide de que lado suma
   lote: string;
+  id_linea?: number | null;
   linea_prod: string;
   fecha_hora: string;
   id_usuario?: number | null;
@@ -110,6 +122,7 @@ export interface ReporteLoteFila {
   producto?: string | null;   // el backend agrupa por producto + lote + linea
   id_producto?: number | null;
   lote: string;
+  id_linea?: number | null;
   linea_prod: string;         // una sola linea por fila (antes era el array "lineas")
   variedades?: string[];
   caracteristicas?: string[];
@@ -141,10 +154,14 @@ export interface UsuarioOut {
 }
 
 export interface MermaInput {
-  cant_kg: number | string;
+  /** El peso va de UNA forma: cant_kg (neto), o peso_bruto_kg + id_contenedor (la API resta la tara). */
+  cant_kg?: number | string;
+  peso_bruto_kg?: number | string;
+  id_contenedor?: number | null;
   id_tipo_merma?: number | null;
   lote: string;
-  linea_prod: string;
+  /** Id de /lineas. Negativo = linea fija del backend anterior: se manda linea_prod con el nombre. */
+  id_linea?: number | null;
   fecha_hora?: string;
   id_producto?: number | null;
   id_variedad?: number | null;

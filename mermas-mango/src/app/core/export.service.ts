@@ -48,6 +48,11 @@ export class ExportService {
     await this.saveCsv(`reporte-lotes-${u}-${rango}.csv`, '﻿' + L.join(nl));
   }
 
+  /** Peso opcional convertido a la unidad del informe; vacio si no aplica. */
+  private pesoCsv(v: string | null | undefined, u: Unidad): string {
+    return v == null || v === '' ? '' : numKg(aUnidad(Number(v) || 0, u));
+  }
+
   private cell(v: any): string {
     const s = String(v ?? '');
     return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -124,7 +129,7 @@ export class ExportService {
   private pushDetalle(L: string[], registros: LocalRegistro[], u: Unidad, conFecha: boolean): void {
     L.push('');
     L.push('Detalle');
-    L.push([...(conFecha ? ['Fecha'] : []), 'Hora', 'Producto', 'Lote', 'Linea', 'Variedad', 'Caracteristica', 'Tipo', `Cantidad (${u})`, 'Registro'].join(','));
+    L.push([...(conFecha ? ['Fecha'] : []), 'Hora', 'Producto', 'Lote', 'Linea', 'Variedad', 'Caracteristica', 'Tipo', 'Contenedor', `Peso bruto (${u})`, `Tara (${u})`, `Cantidad neta (${u})`, 'Registro'].join(','));
     registros
       .slice()
       .sort((a, b) => (a.fecha_hora || '').localeCompare(b.fecha_hora || ''))
@@ -134,6 +139,8 @@ export class ExportService {
         this.cell(x.producto || ''), this.cell(x.lote), this.cell(x.linea_prod),
         this.cell(x.variedad || ''), this.cell(x.caracteristica || ''),
         this.cell(tipoLabel(x.tipo_merma, x.aprovechable)),
+        // Bruto y tara solo existen si se peso en contenedor; la cantidad es siempre el neto.
+        this.cell(x.contenedor || ''), this.cell(this.pesoCsv(x.peso_bruto_kg, u)), this.cell(this.pesoCsv(x.tara_kg, u)),
         this.cell(numKg(aUnidad(Number(x.cant_kg) || 0, u))), this.cell(x.registrado_por || ''),
       ].join(',')));
   }

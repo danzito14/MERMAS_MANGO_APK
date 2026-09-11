@@ -67,7 +67,10 @@ export class ApiService {
     return {
       _key: 'srv-' + row.id_registro, _pending: false, _op: null, _deleted: false,
       id_registro: row.id_registro, cant_kg: row.cant_kg, ...this.tipoShape(row),
-      lote: row.lote, linea_prod: row.linea_prod, fecha_hora: row.fecha_hora,
+      peso_bruto_kg: row.peso_bruto_kg ?? null, tara_kg: row.tara_kg ?? null,
+      id_contenedor: row.id_contenedor ?? null, contenedor: row.contenedor ?? this.nombreCat('contenedores', row.id_contenedor),
+      lote: row.lote, id_linea: row.id_linea ?? null,
+      linea_prod: row.linea_prod ?? this.nombreCat('lineas', row.id_linea) ?? '', fecha_hora: row.fecha_hora,
       id_usuario: row.id_usuario ?? null, registrado_por: row.registrado_por ?? null,
       id_producto: row.id_producto ?? null, producto: row.producto ?? this.nombreCat('productos', row.id_producto),
       id_variedad: row.id_variedad ?? null, variedad: row.variedad ?? null,
@@ -136,6 +139,27 @@ export class ApiService {
     await this.db.putRegistro(rec);
   }
 
+  private lineaComoTexto(payload: any): boolean {
+    return !!payload && payload.linea_prod != null && payload.id_linea == null;
+  }
+
+  /**
+   * Traduce la linea de texto (backend anterior) al id de /lineas antes de mandarla.
+   * Devuelve false si el servidor ya exige id_linea y esa linea no existe alla: la
+   * entrada se queda en cola, visible como pendiente, en vez de mandarse, rebotar
+   * con 422 y que la cola la descarte.
+   */
+  private async migrarLinea(it: OutboxEntry): Promise<boolean> {
+    if (!this.lineaComoTexto(it.payload) || !this.cat.soportaLineas()) return true;
+    const nombre = String(it.payload.linea_prod).trim().toLowerCase();
+    const linea = this.cat.de('lineas').find((l) => l.id > 0 && l.nombre.toLowerCase() === nombre);
+    if (!linea) return false;
+    const { linea_prod, ...resto } = it.payload;
+    it.payload = { ...resto, id_linea: linea.id };
+    await this.db.addOutbox(it);
+    return true;
+  }
+
   private async processOutbox(it: OutboxEntry): Promise<boolean> {
     if (it.type === 'create') {
       const rec = await this.call(firstValueFrom(this.http.post<RegistroMermaOut>(this.base() + '/mermas', it.payload)));
@@ -167,9 +191,15 @@ export class ApiService {
     if (!this.online()) return Promise.resolve(0);
     this._syncing = this.db.getOutbox().then(async (items) => {
       items.sort((a, b) => (a.id! - b.id!));
+      // Capturas encoladas contra el backend anterior llevan la linea como texto:
+      // se vuelve a consultar /lineas para saber si ya hay que traducirlas a id.
+      if (items.some((it) => this.lineaComoTexto(it.payload))) {
+        try { await this.cat.cargar('lineas'); } catch { /* se decide con lo cacheado */ }
+      }
       let done = 0;
       for (const it of items) {
         try {
+          if (!(await this.migrarLinea(it))) continue;     // mandarla daria 422 y se perderia
           if (await this.processOutbox(it)) done++;
         } catch (e) {
           const err = e as ApiError;
@@ -213,7 +243,8 @@ export class ApiService {
   async query(params: QueryParams = {}): Promise<{ items: LocalRegistro[]; total: number }> {
     let all = (await this.db.getRegistros()).filter((r) => !r._deleted);
     if (params.lote) { const l = params.lote.toLowerCase(); all = all.filter((r) => (r.lote || '').toLowerCase().indexOf(l) !== -1); }
-    if (params.linea_prod) { const p = params.linea_prod.toLowerCase(); all = all.filter((r) => (r.linea_prod || '').toLowerCase().indexOf(p) !== -1); }
+    // Exacta: la linea se elige de una lista, y con "contiene" L1 tambien traeria L10.
+    if (params.linea_prod) { const p = params.linea_prod.toLowerCase(); all = all.filter((r) => (r.linea_prod || '').toLowerCase() === p); }
     if (params.id_tipo_merma != null) all = all.filter((r) => Number(r.id_tipo_merma) === Number(params.id_tipo_merma));
     if (params.aprovechable != null) all = all.filter((r) => r.aprovechable === params.aprovechable);
     if (params.fecha) all = all.filter((r) => (r.fecha_hora || '').slice(0, 10) === params.fecha);
@@ -408,8 +439,20 @@ export class ApiService {
     return id < 0 ? { tipo_merma: id === TIPO_LEGACY_RESIDUO ? 'cascara_hueso' : 'aprovechable' } : { id_tipo_merma: id };
   }
 
+  /** Linea: el id de /lineas, o el nombre si es una de las fijas del backend anterior (id negativo). */
+  private lineaPayload(id: number | null | undefined): any {
+    if (id == null) return {};
+    return id < 0 ? { linea_prod: this.cat.buscar('lineas', id)?.nombre ?? '' } : { id_linea: id };
+  }
+
+  /** Peso de UNA sola forma: bruto + contenedor (la API resta la tara), o neto directo. */
+  private pesoPayload(data: Partial<MermaInput>): any {
+    if (data.id_contenedor != null) return { peso_bruto_kg: Number(data.peso_bruto_kg), id_contenedor: data.id_contenedor };
+    return data.cant_kg !== undefined && data.cant_kg !== '' ? { cant_kg: Number(data.cant_kg) } : {};
+  }
+
   async crear(data: MermaInput): Promise<{ record: LocalRegistro; queued: boolean }> {
-    const payload: any = { cant_kg: Number(data.cant_kg), lote: data.lote, linea_prod: data.linea_prod, ...this.tipoPayload(data.id_tipo_merma) };
+    const payload: any = { ...this.pesoPayload(data), lote: data.lote, ...this.lineaPayload(data.id_linea), ...this.tipoPayload(data.id_tipo_merma) };
     if (data.fecha_hora) payload.fecha_hora = data.fecha_hora;
     if (data.id_producto != null) payload.id_producto = data.id_producto;
     if (data.id_variedad != null) payload.id_variedad = data.id_variedad;
@@ -432,13 +475,15 @@ export class ApiService {
     const key = 'loc-' + this.uuid();
     const rec: LocalRegistro = {
       _key: key, _pending: true, _op: 'create', _deleted: false, id_registro: null,
-      cant_kg: this.formatKg(payload.cant_kg), ...this.tipoShape(payload), lote: payload.lote,
-      linea_prod: payload.linea_prod, fecha_hora: payload.fecha_hora || this.nowISO(),
+      cant_kg: '', ...this.tipoShape(payload), lote: payload.lote,
+      id_linea: payload.id_linea ?? null, linea_prod: payload.linea_prod ?? '', fecha_hora: payload.fecha_hora || this.nowISO(),
       id_usuario: null, registrado_por: this.auth.username(),
       id_producto: payload.id_producto ?? null, producto: this.nombreCat('productos', payload.id_producto),
       id_variedad: payload.id_variedad ?? null, variedad: this.nombreCat('variedades', payload.id_variedad),
       id_caracteristica: payload.id_caracteristica ?? null, caracteristica: this.nombreCat('caracteristicas', payload.id_caracteristica),
     };
+    this.aplicarPeso(rec, payload);
+    this.refrescarNombres(rec);
     await this.db.putRegistro(rec);
     await this.db.addOutbox({ type: 'create', key, serverId: null, payload: { ...payload, fecha_hora: rec.fecha_hora }, createdAt: this.nowISO() });
     await this.updatePending();
@@ -446,11 +491,12 @@ export class ApiService {
   }
 
   async actualizar(key: string, changes: Partial<MermaInput>): Promise<{ record: LocalRegistro; queued: boolean }> {
-    const payload: any = {};
-    (['cant_kg', 'lote', 'linea_prod', 'fecha_hora'] as const).forEach((k) => {
-      const v = (changes as any)[k];
-      if (v !== undefined && v !== '') payload[k] = k === 'cant_kg' ? Number(v) : v;
+    const payload: any = { ...this.pesoPayload(changes) };
+    (['lote', 'fecha_hora'] as const).forEach((k) => {
+      const v = changes[k];
+      if (v !== undefined && v !== '') payload[k] = v;
     });
+    if (changes.id_linea !== undefined) Object.assign(payload, this.lineaPayload(changes.id_linea));
     if (changes.id_tipo_merma !== undefined) Object.assign(payload, this.tipoPayload(changes.id_tipo_merma));
     (['id_producto', 'id_variedad', 'id_caracteristica'] as const).forEach((k) => {
       const v = (changes as any)[k];
@@ -461,8 +507,7 @@ export class ApiService {
     if (!rec) throw { status: 404, detail: 'Registro no encontrado.' } as ApiError;
 
     if (rec._op === 'create' || rec.id_registro == null) {
-      Object.keys(payload).forEach((k) => { (rec as any)[k] = k === 'cant_kg' ? this.formatKg(payload[k]) : payload[k]; });
-      this.refrescarNombres(rec);
+      this.aplicarLocal(rec, payload);
       await this.db.putRegistro(rec);
       await this.mergeOutboxCreate(key, payload);
       return { record: rec, queued: true };
@@ -482,8 +527,7 @@ export class ApiService {
   }
 
   private async queueUpdate(rec: LocalRegistro, payload: any): Promise<{ record: LocalRegistro; queued: boolean }> {
-    Object.keys(payload).forEach((k) => { (rec as any)[k] = k === 'cant_kg' ? this.formatKg(payload[k]) : payload[k]; });
-    this.refrescarNombres(rec);
+    this.aplicarLocal(rec, payload);
     rec._pending = true;
     await this.db.putRegistro(rec);
     await this.db.addOutbox({ type: 'update', key: rec._key, serverId: rec.id_registro, payload, createdAt: this.nowISO() });
@@ -491,20 +535,58 @@ export class ApiService {
     return { record: rec, queued: true };
   }
 
-  /** Reetiqueta producto/variedad/caracteristica tras editar sin conexion (los ids ya cambiaron). */
+  /** Reetiqueta tipo/producto/linea/variedad/caracteristica tras editar sin conexion (los ids ya cambiaron). */
   private refrescarNombres(rec: LocalRegistro): void {
     const t = this.cat.buscar('tipos-merma', rec.id_tipo_merma);
     if (t) { rec.tipo_merma = t.nombre; rec.aprovechable = t.aprovechable === true; }
     rec.producto = this.nombreCat('productos', rec.id_producto);
+    if (rec.id_linea != null) rec.linea_prod = this.nombreCat('lineas', rec.id_linea) ?? rec.linea_prod;
     rec.variedad = this.nombreCat('variedades', rec.id_variedad);
     rec.caracteristica = this.nombreCat('caracteristicas', rec.id_caracteristica);
+  }
+
+  /** Aplica un cambio al registro en cache: sin conexion, o sobre un alta que todavia no sube. */
+  private aplicarLocal(rec: LocalRegistro, payload: any): void {
+    const { cant_kg, peso_bruto_kg, id_contenedor, ...resto } = payload;
+    Object.assign(rec, resto);
+    this.aplicarPeso(rec, payload);
+    this.refrescarNombres(rec);
+  }
+
+  /**
+   * El neto sin pasar por la API, imitando lo que hara el servidor: con contenedor
+   * resta la tara (la copiada al capturar, salvo que cambie el contenedor). Solo es
+   * para mostrar; al sincronizar el registro se reemplaza por lo que calculo el servidor.
+   */
+  private aplicarPeso(rec: LocalRegistro, payload: any): void {
+    if (payload.cant_kg !== undefined) {
+      Object.assign(rec, { cant_kg: this.formatKg(payload.cant_kg), peso_bruto_kg: null, tara_kg: null, id_contenedor: null, contenedor: null });
+      return;
+    }
+    if (payload.peso_bruto_kg === undefined && payload.id_contenedor === undefined) return;
+    const idContenedor = payload.id_contenedor ?? rec.id_contenedor ?? null;
+    const c = this.cat.buscar('contenedores', idContenedor);
+    const mismaTara = idContenedor === rec.id_contenedor && rec.tara_kg != null;
+    const tara = mismaTara ? Number(rec.tara_kg) : Number(c?.peso_kg) || 0;
+    const bruto = Number(payload.peso_bruto_kg ?? rec.peso_bruto_kg) || 0;
+    Object.assign(rec, {
+      id_contenedor: idContenedor, contenedor: c?.nombre ?? rec.contenedor ?? null,
+      peso_bruto_kg: this.formatKg(bruto), tara_kg: this.formatKg(tara), cant_kg: this.formatKg(Math.max(0, bruto - tara)),
+    });
   }
 
   private async mergeOutboxCreate(key: string, changes: any): Promise<void> {
     const all = await this.db.getOutbox();
     const entry = all.find((o) => o.type === 'create' && o.key === key);
     if (!entry) return;
-    Object.keys(changes).forEach((k) => { entry.payload[k] = changes[k]; });
+    const p = entry.payload;
+    // Peso y linea van de una sola forma: la nueva reemplaza a la anterior
+    // (con las dos juntas la API responde 422 y la cola descartaria la captura).
+    if (changes.cant_kg !== undefined) { delete p.peso_bruto_kg; delete p.id_contenedor; }
+    if (changes.peso_bruto_kg !== undefined || changes.id_contenedor !== undefined) delete p.cant_kg;
+    if (changes.id_linea !== undefined) delete p.linea_prod;
+    if (changes.linea_prod !== undefined) delete p.id_linea;
+    Object.keys(changes).forEach((k) => { p[k] = changes[k]; });
     await this.db.addOutbox(entry);
   }
 

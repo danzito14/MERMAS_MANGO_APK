@@ -12,8 +12,11 @@ interface CacheCatalogos {
   'tipos-merma': Record<string, CatalogoItem[]>;
   variedades: Record<string, CatalogoItem[]>;
   caracteristicas: Record<string, CatalogoItem[]>;
+  lineas: Record<string, CatalogoItem[]>;
+  contenedores: Record<string, CatalogoItem[]>;
   soporta: boolean;
   soportaTipos?: boolean;
+  soportaLineas?: boolean;
 }
 
 /**
@@ -24,6 +27,12 @@ const TIPOS_LEGACY: CatalogoItem[] = [
   { id: TIPO_LEGACY_APROVECHABLE, nombre: 'Aprovechable', activo: true, aprovechable: true, id_producto: null },
   { id: TIPO_LEGACY_RESIDUO, nombre: 'Cascara y Hueso', activo: true, aprovechable: false, id_producto: null },
 ];
+
+/**
+ * Las lineas fijas del backend anterior, donde la linea era texto libre y no habia /lineas.
+ * Ids negativos, igual que los tipos: ApiService manda linea_prod con el nombre en vez de id_linea.
+ */
+const LINEAS_LEGACY: CatalogoItem[] = ['L1', 'L2', 'L3', 'L4'].map((nombre, i) => ({ id: -(i + 1), nombre, activo: true }));
 
 /** Color de respaldo si el backend todavia no manda uno (version anterior). */
 const COLOR_PRODUCTO_DEFECTO = '#9E9E9E';
@@ -44,6 +53,8 @@ export interface CatalogoDatos {
   aprovechable?: boolean;
   /** Solo productos: color hex (#RRGGBB). */
   color?: string;
+  /** Solo contenedores: su peso en kg (la tara). */
+  peso_kg?: number | string;
 }
 
 /**
@@ -66,6 +77,8 @@ export class CatalogoService {
   readonly tipos = signal<CatalogoItem[]>([]);
   readonly variedades = signal<CatalogoItem[]>([]);
   readonly caracteristicas = signal<CatalogoItem[]>([]);
+  readonly lineas = signal<CatalogoItem[]>([]);
+  readonly contenedores = signal<CatalogoItem[]>([]);
 
   /** Producto seleccionado ahora mismo (arranca con el de la ultima captura). */
   readonly productoActivo = signal<number | null>(this.productoPreferido());
@@ -74,31 +87,49 @@ export class CatalogoService {
   readonly soportaProductos = signal(true);
   /** false cuando no expone /tipos-merma: se usan los dos tipos del enum anterior. */
   readonly soportaTipos = signal(true);
+  /** false cuando no expone /lineas: se usan L1-L4 como texto y no hay contenedores. */
+  readonly soportaLineas = signal(true);
 
-  private cache: CacheCatalogos = { productos: {}, 'tipos-merma': {}, variedades: {}, caracteristicas: {}, soporta: true };
+  private cache: CacheCatalogos = { productos: {}, 'tipos-merma': {}, variedades: {}, caracteristicas: {}, lineas: {}, contenedores: {}, soporta: true };
   private restaurando: Promise<void> | null = null;
 
   private base(tipo: CatalogoTipo): string { return this.cfg.apiBase + '/' + tipo; }
   private signalDe(tipo: CatalogoTipo) {
-    if (tipo === 'productos') return this.productos;
-    if (tipo === 'tipos-merma') return this.tipos;
-    return tipo === 'variedades' ? this.variedades : this.caracteristicas;
+    switch (tipo) {
+      case 'productos': return this.productos;
+      case 'tipos-merma': return this.tipos;
+      case 'variedades': return this.variedades;
+      case 'caracteristicas': return this.caracteristicas;
+      case 'lineas': return this.lineas;
+      default: return this.contenedores;
+    }
+  }
+  /** Productos, lineas y contenedores no cuelgan de un producto: se cargan una sola vez. */
+  esGlobal(tipo: CatalogoTipo): boolean {
+    return tipo === 'productos' || tipo === 'lineas' || tipo === 'contenedores';
   }
   /** Clave de cache: '' = sin filtro de producto. */
   private clave(tipo: CatalogoTipo, idProducto: number | null | undefined): string {
-    return tipo === 'productos' || idProducto == null ? '' : String(idProducto);
+    return this.esGlobal(tipo) || idProducto == null ? '' : String(idProducto);
   }
 
   /** La API puede devolver id_producto / id_tipo_merma / id_variedad / id_caracteristica / id: se normaliza. */
   private norm(tipo: CatalogoTipo, row: any): CatalogoItem {
     const propio = tipo === 'productos' ? row?.id_producto
       : tipo === 'tipos-merma' ? row?.id_tipo_merma
-        : tipo === 'variedades' ? row?.id_variedad : row?.id_caracteristica;
+        : tipo === 'variedades' ? row?.id_variedad
+          : tipo === 'caracteristicas' ? row?.id_caracteristica
+            : tipo === 'lineas' ? row?.id_linea : row?.id_contenedor;
     const it: CatalogoItem = {
       id: propio ?? row?.id,
       nombre: row?.nombre ?? row?.producto ?? row?.tipo_merma ?? row?.variedad ?? row?.caracteristica ?? '',
       activo: row?.activo !== false,
     };
+    if (tipo === 'lineas') return it;
+    if (tipo === 'contenedores') {
+      it.peso_kg = row?.peso_kg != null ? String(row.peso_kg) : '0';
+      return it;
+    }
     if (tipo === 'productos') {
       it.etiqueta_no_aprovechable = row?.etiqueta_no_aprovechable || 'Cascara y Hueso';
       it.color = row?.color || COLOR_PRODUCTO_DEFECTO;
@@ -123,10 +154,11 @@ export class CatalogoService {
     if (!this.restaurando) {
       this.restaurando = this.db.getMeta(META_KEY).then((c: CacheCatalogos | null) => {
         if (c && c.productos && c.variedades && c.caracteristicas) {
-          // Una cache guardada por la version anterior no trae los tipos.
-          this.cache = { ...c, 'tipos-merma': c['tipos-merma'] || {} };
+          // Una cache guardada por una version anterior no trae los tipos ni las lineas.
+          this.cache = { ...c, 'tipos-merma': c['tipos-merma'] || {}, lineas: c.lineas || {}, contenedores: c.contenedores || {} };
           this.soportaProductos.set(c.soporta !== false);
           this.soportaTipos.set(c.soportaTipos !== false);
+          this.soportaLineas.set(c.soportaLineas !== false);
           this.productos.set(c.productos[''] || []);
         }
       }).catch(() => { /* primera vez: cache vacia */ });
@@ -137,6 +169,7 @@ export class CatalogoService {
   private persistir(): Promise<any> {
     this.cache.soporta = this.soportaProductos();
     this.cache.soportaTipos = this.soportaTipos();
+    this.cache.soportaLineas = this.soportaLineas();
     return this.db.setMeta(META_KEY, this.cache).catch(() => null);
   }
 
@@ -157,6 +190,9 @@ export class CatalogoService {
         const items = (data || []).map((r) => this.norm(tipo, r));
         this.cache[tipo][clave] = items;
         if (tipo === 'productos') this.soportaProductos.set(true);
+        // Se vuelve a preguntar cada vez que hay red: si el backend se actualiza despues que
+        // este front, hay que dejar de mandar la linea como texto en cuanto aparece /lineas.
+        if (tipo === 'lineas' || tipo === 'contenedores') this.soportaLineas.set(true);
         await this.persistir();
         this.signalDe(tipo).set(items);
         return items;
@@ -175,9 +211,16 @@ export class CatalogoService {
           await this.persistir();
           return this.usarTiposLegacy(clave);
         }
+        // Backend anterior (sin /lineas ni /contenedores): L1-L4 fijas y peso siempre neto.
+        if ((tipo === 'lineas' || tipo === 'contenedores') && (err.status === 404 || err.status === 405)) {
+          this.soportaLineas.set(false);
+          await this.persistir();
+          return this.usarLineasLegacy(tipo);
+        }
         if (!err.network) throw e;
       }
     }
+    if ((tipo === 'lineas' || tipo === 'contenedores') && !this.soportaLineas()) return this.usarLineasLegacy(tipo);
     const items = this.cache[tipo][clave] || [];
     this.signalDe(tipo).set(items);
     return items;
@@ -189,6 +232,8 @@ export class CatalogoService {
    */
   async cargarTodos(): Promise<void> {
     await this.restaurar();
+    // Lineas y contenedores son globales: una sola vez, sin cascada por producto.
+    await Promise.all([this.cargar('lineas').catch(() => []), this.cargar('contenedores').catch(() => [])]);
     let prods: CatalogoItem[] = [];
     try { prods = await this.cargar('productos'); } catch { prods = this.cache.productos[''] || []; }
 
@@ -201,6 +246,14 @@ export class CatalogoService {
         await Promise.all([this.cargar('tipos-merma', p.id), this.cargar('variedades', p.id), this.cargar('caracteristicas', p.id)]);
       } catch { /* si uno falla, los demas siguen con lo que haya en cache */ }
     }
+  }
+
+  /** Backend anterior: las lineas fijas como texto, y ningun contenedor (el peso siempre es neto). */
+  private usarLineasLegacy(tipo: 'lineas' | 'contenedores'): CatalogoItem[] {
+    const items = tipo === 'lineas' ? LINEAS_LEGACY : [];
+    this.cache[tipo][''] = items;
+    this.signalDe(tipo).set(items);
+    return items;
   }
 
   /** Deja los dos tipos del backend anterior en la cache y los devuelve. */
@@ -332,6 +385,11 @@ export class CatalogoService {
     if (tipo === 'productos') {
       if (d.etiqueta_no_aprovechable !== undefined) b.etiqueta_no_aprovechable = d.etiqueta_no_aprovechable;
       if (d.color !== undefined) b.color = d.color;
+      return b;
+    }
+    if (tipo === 'lineas') return b;
+    if (tipo === 'contenedores') {
+      if (d.peso_kg !== undefined) b.peso_kg = Number(d.peso_kg);
       return b;
     }
     if (tipo === 'tipos-merma' && d.aprovechable !== undefined) b.aprovechable = d.aprovechable;
